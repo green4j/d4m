@@ -67,6 +67,7 @@ public final class ForwardCursor {
 
     /**
      * Returns the sequence the cursor is wrapping.
+     *
      * @return the sequence
      */
     public Sequence sequence() {
@@ -350,12 +351,12 @@ public final class ForwardCursor {
         CursorSupport.releasePin(reposPin);
 
         try {
-            for (int chunkIndex = 0; chunkIndex < forSnapshot.size(); chunkIndex++) {
-                if (!CursorSupport.acquirePin(forSnapshot, chunkIndex, reposPin)) {
+            for (int chunkIdx = 0; chunkIdx < forSnapshot.size(); chunkIdx++) {
+                if (!CursorSupport.acquirePin(forSnapshot, chunkIdx, reposPin)) {
                     forceRefresh();
                     return false;
                 }
-                final Chunk chunk = forSnapshot.chunk(chunkIndex);
+                final Chunk chunk = forSnapshot.chunk(chunkIdx);
                 final int entryCount = chunk.getEntryCount();
                 if (entryCount == 0) {
                     continue;
@@ -365,18 +366,18 @@ public final class ForwardCursor {
                     continue;
                 }
 
-                int entryOffset = Chunk.HEADER_SIZE;
-                for (int entryIndex = 0; entryIndex < entryCount; entryIndex++) {
-                    final long entryOrder = chunk.entryOrder(entryOffset);
-                    final long entryVersion = chunk.entryVersion(entryOffset);
+                int entryOff = Chunk.HEADER_SIZE;
+                for (int entryIdx = 0; entryIdx < entryCount; entryIdx++) {
+                    final long entryOrder = chunk.entryOrder(entryOff);
+                    final long entryVersion = chunk.entryVersion(entryOff);
                     if (after(entryOrder, entryVersion)) {
-                        currentChunkIndex = chunkIndex;
-                        currentEntryIndex = entryIndex;
-                        currentEntryOffset = entryOffset;
+                        currentChunkIndex = chunkIdx;
+                        currentEntryIndex = entryIdx;
+                        currentEntryOffset = entryOff;
                         CursorSupport.transferPin(reposPin, pinState);
                         return true;
                     }
-                    entryOffset += chunk.entryTotalSize(entryOffset);
+                    entryOff += chunk.entryTotalSize(entryOff);
                 }
             }
             currentChunkIndex = forSnapshot.size();

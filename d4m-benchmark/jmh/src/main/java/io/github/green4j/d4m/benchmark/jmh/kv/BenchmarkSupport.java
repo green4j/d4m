@@ -90,7 +90,7 @@ public final class BenchmarkSupport {
      * 30% of the given population spills to mmap tiers, using the specified
      * number of segments.
      *
-     * @param ringSize the number of ring segments
+     * @param ringSize        the number of ring segments
      * @param totalPopulation the total number of entries to be stored
      * @return a ring configured for 30%-eviction benchmarks
      */
@@ -129,7 +129,7 @@ public final class BenchmarkSupport {
      * Creates a {@link KeyValueRing} with the given ring size and
      * hot tier size per segment.
      *
-     * @param ringSize the number of ring segments
+     * @param ringSize              the number of ring segments
      * @param hotTierSizePerSegment the hot tier buffer size in bytes for each segment
      * @return a fully configured ring
      */
@@ -182,7 +182,7 @@ public final class BenchmarkSupport {
      * The leading bytes are left as-is (expected to be '0' padding).
      *
      * @param keyBuf the pre-allocated key buffer
-     * @param seq the sequence number to encode
+     * @param seq    the sequence number to encode
      */
     static void writeKeyInPlace(final UnsafeBuffer keyBuf, final long seq) {
         long val = seq;
@@ -220,7 +220,7 @@ public final class BenchmarkSupport {
      * Populates the ring with {@code count} key-value pairs using
      * pre-allocated, reusable buffers.
      *
-     * @param ring the ring to populate
+     * @param ring  the ring to populate
      * @param count the number of entries to insert
      */
     static void populate(final KeyValueRing ring, final int count) {

@@ -105,7 +105,7 @@ public interface KeyValueConsuming {
          * Allocates a writable key-value entry of the specified sizes.
          *
          * @param slotIndex the metadata slot index assigned to this entry
-         * @param keySize the size of the key in bytes
+         * @param keySize   the size of the key in bytes
          * @param valueSize the size of the value in bytes
          * @return a writable {@link KeyValue}, or {@code null} to skip
          */
@@ -126,7 +126,7 @@ public interface KeyValueConsuming {
          * Allocates a writable key-and-value entry of the specified sizes.
          *
          * @param slotIndex the metadata slot index assigned to this entry
-         * @param keySize the size of the key in bytes
+         * @param keySize   the size of the key in bytes
          * @param valueSize the size of the value in bytes
          * @return a writable {@link KeyAndValue}, or {@code null} to skip
          */

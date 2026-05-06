@@ -29,6 +29,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -57,7 +60,7 @@ class SequenceTest {
     class SingleAppend {
         @Test
         void appendToEmptySeriesSucceeds() {
-            final io.github.green4j.d4m.common.AtomicBuffer payload = TestHarness.payloadWithId(1);
+            final AtomicBuffer payload = TestHarness.payloadWithId(1);
             assertTrue(sequence.append(100L, payload, 0, MSG_PAYLOAD));
 
             final ChunkSnapshot snapshot = sequence.snapshot();
@@ -67,7 +70,7 @@ class SequenceTest {
 
         @Test
         void appendedEntryHasCorrectOrder() {
-            final io.github.green4j.d4m.common.AtomicBuffer payload = TestHarness.payloadWithId(1);
+            final AtomicBuffer payload = TestHarness.payloadWithId(1);
             sequence.append(500L, payload, 0, MSG_PAYLOAD);
 
             final Chunk chunk = sequence.snapshot().chunk(0);
@@ -76,7 +79,7 @@ class SequenceTest {
 
         @Test
         void appendedEntryPreservesPayload() {
-            final io.github.green4j.d4m.common.AtomicBuffer payload = TestHarness.payloadWithId(42);
+            final AtomicBuffer payload = TestHarness.payloadWithId(42);
             sequence.append(100L, payload, 0, MSG_PAYLOAD);
 
             final Chunk chunk = sequence.snapshot().chunk(0);
@@ -88,7 +91,7 @@ class SequenceTest {
 
         @Test
         void appendUpdatesMinMaxOrder() {
-            final io.github.green4j.d4m.common.AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
+            final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
             sequence.append(100L, payload, 0, MSG_PAYLOAD);
             sequence.append(200L, payload, 0, MSG_PAYLOAD);
 
@@ -99,7 +102,7 @@ class SequenceTest {
 
         @Test
         void appendAssignsMonotonicallyIncreasingVersions() {
-            final io.github.green4j.d4m.common.AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
+            final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
             sequence.append(100L, payload, 0, MSG_PAYLOAD);
             sequence.append(100L, payload, 0, MSG_PAYLOAD); // same order ok
 
@@ -111,7 +114,7 @@ class SequenceTest {
 
         @Test
         void equalOrdersArePermitted() {
-            final io.github.green4j.d4m.common.AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
+            final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
             assertTrue(sequence.append(100L, payload, 0, MSG_PAYLOAD));
             assertTrue(sequence.append(100L, payload, 0, MSG_PAYLOAD));
             assertEquals(2, sequence.snapshot().chunk(0).getEntryCount());
@@ -119,7 +122,7 @@ class SequenceTest {
 
         @Test
         void strictlyEarlierOrderIsRejected() {
-            final io.github.green4j.d4m.common.AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
+            final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
             sequence.append(200L, payload, 0, MSG_PAYLOAD);
 
             assertFalse(sequence.append(100L, payload, 0, MSG_PAYLOAD));
@@ -130,7 +133,7 @@ class SequenceTest {
     class ChunkSpilling {
         @Test
         void newChunkCreatedWhenTailFull() {
-            final io.github.green4j.d4m.common.AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
+            final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
             final int entriesPerChunk = DATA_CAP / MSG_TOTAL;
 
             for (int i = 0; i < entriesPerChunk; i++) {
@@ -145,7 +148,7 @@ class SequenceTest {
 
         @Test
         void previousChunkIsSealedAfterSpill() {
-            final io.github.green4j.d4m.common.AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
+            final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
             final int entriesPerChunk = DATA_CAP / MSG_TOTAL;
 
             for (int i = 0; i <= entriesPerChunk; i++) {
@@ -158,7 +161,7 @@ class SequenceTest {
 
         @Test
         void snapshotVersionIncreasesOnNewChunk() {
-            final io.github.green4j.d4m.common.AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
+            final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
             final long v0 = sequence.snapshot().version();
 
             sequence.append(1L, payload, 0, MSG_PAYLOAD);
@@ -173,7 +176,7 @@ class SequenceTest {
         void appendBatchWritesAll() {
             final int count = 5;
             final long[] orders = {100, 200, 300, 400, 500};
-            final io.github.green4j.d4m.common.AtomicBuffer payloads = TestHarness.payload(count * MSG_PAYLOAD);
+            final AtomicBuffer payloads = TestHarness.payload(count * MSG_PAYLOAD);
             final int[] offsets = new int[count];
             final int[] sizes = new int[count];
             for (int i = 0; i < count; i++) {
@@ -189,7 +192,7 @@ class SequenceTest {
 
         @Test
         void appendBatchRejectsOutOfOrder() {
-            final io.github.green4j.d4m.common.AtomicBuffer pl = TestHarness.payload(MSG_PAYLOAD);
+            final AtomicBuffer pl = TestHarness.payload(MSG_PAYLOAD);
             sequence.append(500L, pl, 0, MSG_PAYLOAD);
 
             final long[] orders = {100}; // earlier than existing max
@@ -204,7 +207,7 @@ class SequenceTest {
             final int entriesPerChunk = DATA_CAP / MSG_TOTAL;
             final int totalEntries = entriesPerChunk + 3;
             final long[] orders = new long[totalEntries];
-            final io.github.green4j.d4m.common.AtomicBuffer payloads = TestHarness.payload(totalEntries * MSG_PAYLOAD);
+            final AtomicBuffer payloads = TestHarness.payload(totalEntries * MSG_PAYLOAD);
             final int[] offsets = new int[totalEntries];
             final int[] sizes = new int[totalEntries];
             for (int i = 0; i < totalEntries; i++) {
@@ -251,11 +254,11 @@ class SequenceTest {
     class Insert {
         @Test
         void insertIntoMiddleOfChunk() {
-            final io.github.green4j.d4m.common.AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
+            final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
             sequence.append(100L, payload, 0, MSG_PAYLOAD);
             sequence.append(300L, payload, 0, MSG_PAYLOAD);
 
-            final io.github.green4j.d4m.common.AtomicBuffer insertPayload = TestHarness.payloadWithId(99);
+            final AtomicBuffer insertPayload = TestHarness.payloadWithId(99);
             sequence.insert(200L, insertPayload, 0, MSG_PAYLOAD);
 
             // Verify ordering via chunk scan
@@ -279,7 +282,7 @@ class SequenceTest {
 
         @Test
         void insertAtEndFallsBackToAppend() {
-            final io.github.green4j.d4m.common.AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
+            final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
             sequence.append(100L, payload, 0, MSG_PAYLOAD);
 
             sequence.insert(200L, payload, 0, MSG_PAYLOAD);
@@ -290,7 +293,7 @@ class SequenceTest {
 
         @Test
         void insertIntoEmptySeriesBehavesAsAppend() {
-            final io.github.green4j.d4m.common.AtomicBuffer payload = TestHarness.payloadWithId(1);
+            final AtomicBuffer payload = TestHarness.payloadWithId(1);
             sequence.insert(100L, payload, 0, MSG_PAYLOAD);
 
             assertEquals(1, sequence.snapshot().size());
@@ -302,7 +305,7 @@ class SequenceTest {
     class InsertOrUpdateUnique {
         @Test
         void insertsWhenOrderNotPresent() {
-            final io.github.green4j.d4m.common.AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
+            final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
             sequence.append(100L, payload, 0, MSG_PAYLOAD);
             sequence.append(300L, payload, 0, MSG_PAYLOAD);
 
@@ -319,8 +322,8 @@ class SequenceTest {
 
         @Test
         void updatesWhenOrderAlreadyExists() {
-            final io.github.green4j.d4m.common.AtomicBuffer payload1 = TestHarness.payloadWithId(1);
-            final io.github.green4j.d4m.common.AtomicBuffer payload2 = TestHarness.payloadWithId(2);
+            final AtomicBuffer payload1 = TestHarness.payloadWithId(1);
+            final AtomicBuffer payload2 = TestHarness.payloadWithId(2);
             sequence.append(100L, payload1, 0, MSG_PAYLOAD);
 
             sequence.insertOrUpdateUnique(100L, payload2, 0, MSG_PAYLOAD);
@@ -357,17 +360,361 @@ class SequenceTest {
     }
 
     @Nested
+    class InsertBatch {
+        @Test
+        void insertBatchIntoEmptySequence() {
+            final int count = 5;
+            final long[] orders = {100, 200, 300, 400, 500};
+            final AtomicBuffer payloads = TestHarness.payload(count * MSG_PAYLOAD);
+            final int[] offsets = new int[count];
+            final int[] sizes = new int[count];
+            for (int i = 0; i < count; i++) {
+                offsets[i] = i * MSG_PAYLOAD;
+                sizes[i] = MSG_PAYLOAD;
+            }
+
+            final int written = sequence.insertBatch(orders, payloads, offsets, sizes, count);
+
+            assertEquals(count, written);
+            assertEquals(count, totalEntries(sequence.snapshot()));
+        }
+
+        @Test
+        void insertBatchIntoMiddleOfSingleChunk() {
+            final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
+            sequence.append(100L, payload, 0, MSG_PAYLOAD);
+            sequence.append(300L, payload, 0, MSG_PAYLOAD);
+            sequence.append(500L, payload, 0, MSG_PAYLOAD);
+
+            final long[] orders = {200, 400};
+            final AtomicBuffer payloads = TestHarness.payload(2 * MSG_PAYLOAD);
+            final int[] offsets = {0, MSG_PAYLOAD};
+            final int[] sizes = {MSG_PAYLOAD, MSG_PAYLOAD};
+
+            final int written = sequence.insertBatch(orders, payloads, offsets, sizes, 2);
+
+            assertEquals(2, written);
+            assertEquals(5, totalEntries(sequence.snapshot()));
+            assertOrdered(sequence.snapshot());
+        }
+
+        @Test
+        void insertBatchSpansMultipleChunks() {
+            final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
+            final int entriesPerChunk = DATA_CAP / MSG_TOTAL;
+
+            // Fill first chunk
+            for (int i = 0; i < entriesPerChunk; i++) {
+                sequence.append(i * 10L, payload, 0, MSG_PAYLOAD);
+            }
+            // Spill to second chunk
+            sequence.append((entriesPerChunk) * 10L, payload, 0, MSG_PAYLOAD);
+            sequence.append((entriesPerChunk + 1) * 10L, payload, 0, MSG_PAYLOAD);
+
+            // Insert into both chunks
+            final long[] orders = {5, (entriesPerChunk) * 10L + 5};
+            final AtomicBuffer payloads = TestHarness.payload(2 * MSG_PAYLOAD);
+            final int[] offsets = {0, MSG_PAYLOAD};
+            final int[] sizes = {MSG_PAYLOAD, MSG_PAYLOAD};
+
+            final int written = sequence.insertBatch(orders, payloads, offsets, sizes, 2);
+
+            assertEquals(2, written);
+            assertEquals(entriesPerChunk + 4, totalEntries(sequence.snapshot()));
+            assertOrdered(sequence.snapshot());
+        }
+
+        @Test
+        void insertBatchAllBeyondMaxOrder() {
+            final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
+            sequence.append(100L, payload, 0, MSG_PAYLOAD);
+
+            final long[] orders = {200, 300, 400};
+            final AtomicBuffer payloads = TestHarness.payload(3 * MSG_PAYLOAD);
+            final int[] offsets = {0, MSG_PAYLOAD, 2 * MSG_PAYLOAD};
+            final int[] sizes = {MSG_PAYLOAD, MSG_PAYLOAD, MSG_PAYLOAD};
+
+            final int written = sequence.insertBatch(orders, payloads, offsets, sizes, 3);
+
+            assertEquals(3, written);
+            assertEquals(4, totalEntries(sequence.snapshot()));
+            assertOrdered(sequence.snapshot());
+        }
+
+        @Test
+        void insertBatchMixedCowAndAppend() {
+            final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
+            sequence.append(100L, payload, 0, MSG_PAYLOAD);
+            sequence.append(300L, payload, 0, MSG_PAYLOAD);
+            sequence.append(500L, payload, 0, MSG_PAYLOAD);
+
+            // 200 -> COW, 500 and 600 -> append
+            final long[] orders = {200, 500, 600};
+            final AtomicBuffer payloads = TestHarness.payload(3 * MSG_PAYLOAD);
+            final int[] offsets = {0, MSG_PAYLOAD, 2 * MSG_PAYLOAD};
+            final int[] sizes = {MSG_PAYLOAD, MSG_PAYLOAD, MSG_PAYLOAD};
+
+            final int written = sequence.insertBatch(orders, payloads, offsets, sizes, 3);
+
+            assertEquals(3, written);
+            assertEquals(6, totalEntries(sequence.snapshot()));
+            assertOrdered(sequence.snapshot());
+        }
+
+        @Test
+        void insertBatchCausesChunkSpill() {
+            final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
+            final int entriesPerChunk = DATA_CAP / MSG_TOTAL;
+
+            // Fill chunk to near capacity (leave room for 1 more)
+            for (int i = 0; i < entriesPerChunk - 1; i++) {
+                sequence.append(i * 10L, payload, 0, MSG_PAYLOAD);
+            }
+            // Append one more entry beyond this chunk
+            sequence.append((entriesPerChunk - 1) * 10L, payload, 0, MSG_PAYLOAD);
+
+            final ChunkSnapshot before = sequence.snapshot();
+            final int chunksBefore = before.size();
+
+            // Insert enough entries to overflow the first chunk
+            final int insertCount = 3;
+            final long[] orders = new long[insertCount];
+            final AtomicBuffer payloads = TestHarness.payload(insertCount * MSG_PAYLOAD);
+            final int[] offsets = new int[insertCount];
+            final int[] sizes = new int[insertCount];
+            for (int i = 0; i < insertCount; i++) {
+                orders[i] = i * 10L + 5; // interleave
+                offsets[i] = i * MSG_PAYLOAD;
+                sizes[i] = MSG_PAYLOAD;
+            }
+
+            sequence.insertBatch(orders, payloads, offsets, sizes, insertCount);
+
+            assertTrue(sequence.snapshot().size() > chunksBefore);
+            assertEquals(entriesPerChunk + insertCount, totalEntries(sequence.snapshot()));
+            assertOrdered(sequence.snapshot());
+        }
+
+        @Test
+        void insertBatchPreservesPayload() {
+            final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
+            sequence.append(100L, payload, 0, MSG_PAYLOAD);
+            sequence.append(300L, payload, 0, MSG_PAYLOAD);
+
+            final AtomicBuffer insertPayload = TestHarness.payloadWithId(42);
+            final long[] orders = {200};
+            final int[] offsets = {0};
+            final int[] sizes = {MSG_PAYLOAD};
+
+            sequence.insertBatch(orders, insertPayload, offsets, sizes, 1);
+
+            // Find the entry with order 200 and check payload
+            final ChunkSnapshot snap = sequence.snapshot();
+            boolean found = false;
+            for (int ci = 0; ci < snap.size(); ci++) {
+                final Chunk chunk = snap.chunk(ci);
+                int off = Chunk.HEADER_SIZE;
+                for (int ei = 0; ei < chunk.getEntryCount(); ei++) {
+                    if (chunk.entryOrder(off) == 200L) {
+                        final byte[] readBack = new byte[MSG_PAYLOAD];
+                        chunk.buffer().getBytes(off + Chunk.ENTRY_HEADER_SIZE, readBack, 0, MSG_PAYLOAD);
+                        assertEquals(42, TestHarness.idFromPayload(readBack));
+                        found = true;
+                        break;
+                    }
+                    off += chunk.entryTotalSize(off);
+                }
+                if (found) {
+                    break;
+                }
+            }
+            assertTrue(found, "entry with order 200 must exist");
+        }
+
+        @Test
+        void insertBatchRejectsOversizedPayload() {
+            final AtomicBuffer payload = TestHarness.payload(DATA_CAP + 1);
+            final long[] orders = {100};
+            final int[] offsets = {0};
+            final int[] sizes = {DATA_CAP + 1};
+
+            assertThrows(IllegalArgumentException.class,
+                    () -> sequence.insertBatch(orders, payload, offsets, sizes, 1));
+        }
+
+        @Test
+        void insertBatchSingleSnapshotPublish() {
+            final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
+            final int entriesPerChunk = DATA_CAP / MSG_TOTAL;
+
+            // Fill two chunks
+            for (int i = 0; i < entriesPerChunk; i++) {
+                sequence.append(i * 10L, payload, 0, MSG_PAYLOAD);
+            }
+            sequence.append(entriesPerChunk * 10L, payload, 0, MSG_PAYLOAD);
+            sequence.append((entriesPerChunk + 1) * 10L, payload, 0, MSG_PAYLOAD);
+
+            final long versionBefore = sequence.snapshot().version();
+
+            // Insert into both chunks
+            final long[] orders = {5, entriesPerChunk * 10L + 5};
+            final AtomicBuffer payloads = TestHarness.payload(2 * MSG_PAYLOAD);
+            final int[] offsets = {0, MSG_PAYLOAD};
+            final int[] sizes = {MSG_PAYLOAD, MSG_PAYLOAD};
+
+            sequence.insertBatch(orders, payloads, offsets, sizes, 2);
+
+            final long versionAfter = sequence.snapshot().version();
+            assertEquals(versionBefore + 1, versionAfter);
+        }
+
+        @Test
+        void insertBatchWithDuplicateOrders() {
+            final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
+            sequence.append(100L, payload, 0, MSG_PAYLOAD);
+            sequence.append(200L, payload, 0, MSG_PAYLOAD);
+            sequence.append(300L, payload, 0, MSG_PAYLOAD);
+
+            // Insert entries with same order as existing
+            final long[] orders = {100, 200};
+            final AtomicBuffer payloads = TestHarness.payload(2 * MSG_PAYLOAD);
+            final int[] offsets = {0, MSG_PAYLOAD};
+            final int[] sizes = {MSG_PAYLOAD, MSG_PAYLOAD};
+
+            final int written = sequence.insertBatch(orders, payloads, offsets, sizes, 2);
+
+            assertEquals(2, written);
+            assertEquals(5, totalEntries(sequence.snapshot()));
+            assertOrdered(sequence.snapshot());
+        }
+
+        private int totalEntries(final ChunkSnapshot snapshot) {
+            int total = 0;
+            for (int i = 0; i < snapshot.size(); i++) {
+                total += snapshot.chunk(i).getEntryCount();
+            }
+            return total;
+        }
+
+        private void assertOrdered(final ChunkSnapshot snapshot) {
+            long prevOrder = Long.MIN_VALUE;
+            for (int ci = 0; ci < snapshot.size(); ci++) {
+                final Chunk chunk = snapshot.chunk(ci);
+                int off = Chunk.HEADER_SIZE;
+                for (int ei = 0; ei < chunk.getEntryCount(); ei++) {
+                    final long order = chunk.entryOrder(off);
+                    assertTrue(order >= prevOrder,
+                            "entries must be ordered: " + prevOrder + " -> " + order);
+                    prevOrder = order;
+                    off += chunk.entryTotalSize(off);
+                }
+            }
+        }
+    }
+
+    @Nested
+    class InsertOrUpdateEqual {
+        private final PayloadEquals payloadEquals = (payloadA,
+                                                     payloadOffsetA,
+                                                     payloadSizeA,
+                                                     payloadB,
+                                                     payloadOffsetB,
+                                                     payloadSizeB) -> {
+            if (payloadSizeA != payloadSizeB) {
+                return false;
+            }
+            for (int i = 0; i < payloadSizeA; i++) {
+                if (payloadA.getByte(payloadOffsetA + i)
+                        != payloadB.getByte(payloadOffsetB + i)) {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        @Test
+        void updatesWhenPayloadMatches() {
+            final AtomicBuffer payload = TestHarness.payloadWithId(1);
+            sequence.append(100L, payload, 0, MSG_PAYLOAD);
+
+            final AtomicBuffer samePayload = TestHarness.payloadWithId(1);
+            sequence.insertOrUpdateEqual(100L, samePayload, 0, MSG_PAYLOAD, payloadEquals);
+
+            assertEquals(1, totalEntries(sequence.snapshot()));
+        }
+
+        @Test
+        void insertsNewEntryWhenPayloadDiffers() {
+            final AtomicBuffer payload1 = TestHarness.payloadWithId(1);
+            sequence.append(100L, payload1, 0, MSG_PAYLOAD);
+
+            final AtomicBuffer payload2 = TestHarness.payloadWithId(2);
+            sequence.insertOrUpdateEqual(100L, payload2, 0, MSG_PAYLOAD, payloadEquals);
+
+            assertEquals(2, totalEntries(sequence.snapshot()));
+        }
+
+        @Test
+        void insertsAtCorrectPositionWhenOrderNotPresent() {
+            final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
+            sequence.append(100L, payload, 0, MSG_PAYLOAD);
+            sequence.append(300L, payload, 0, MSG_PAYLOAD);
+
+            sequence.insertOrUpdateEqual(200L, TestHarness.payloadWithId(99),
+                    0, MSG_PAYLOAD, payloadEquals);
+
+            assertEquals(3, totalEntries(sequence.snapshot()));
+
+            final ChunkSnapshot snapshot = sequence.snapshot();
+            final List<Long> orders = new ArrayList<>();
+            for (int chunkIndex = 0; chunkIndex < snapshot.size(); chunkIndex++) {
+                final Chunk chunk = snapshot.chunk(chunkIndex);
+                final int entryCount = chunk.getEntryCount();
+                int entryOffset = Chunk.HEADER_SIZE;
+                for (int entryIndex = 0; entryIndex < entryCount; entryIndex++) {
+                    orders.add(chunk.entryOrder(entryOffset));
+                    entryOffset += chunk.entryTotalSize(entryOffset);
+                }
+            }
+            assertEquals(100L, orders.get(0));
+            assertEquals(200L, orders.get(1));
+            assertEquals(300L, orders.get(2));
+        }
+
+        @Test
+        void insertsAsFirstEntryWhenEmpty() {
+            sequence.insertOrUpdateEqual(100L,
+                    TestHarness.payloadWithId(1),
+                    0,
+                    MSG_PAYLOAD,
+                    payloadEquals
+            );
+
+            assertEquals(1, totalEntries(sequence.snapshot()));
+            assertEquals(100L, sequence.snapshot().chunk(0).getMinOrder());
+        }
+
+        private int totalEntries(final ChunkSnapshot snapshot) {
+            int total = 0;
+            for (int i = 0; i < snapshot.size(); i++) {
+                total += snapshot.chunk(i).getEntryCount();
+            }
+            return total;
+        }
+    }
+
+    @Nested
     class OversizedPayload {
         @Test
         void appendRejectsOversizedPayload() {
-            final io.github.green4j.d4m.common.AtomicBuffer payload = TestHarness.payload(DATA_CAP + 1);
+            final AtomicBuffer payload = TestHarness.payload(DATA_CAP + 1);
             assertThrows(IllegalArgumentException.class,
                     () -> sequence.append(1L, payload, 0, DATA_CAP + 1));
         }
 
         @Test
         void insertRejectsOversizedPayload() {
-            final io.github.green4j.d4m.common.AtomicBuffer payload = TestHarness.payload(DATA_CAP + 1);
+            final AtomicBuffer payload = TestHarness.payload(DATA_CAP + 1);
             assertThrows(IllegalArgumentException.class,
                     () -> sequence.insert(1L, payload, 0, DATA_CAP + 1));
         }

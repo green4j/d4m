@@ -34,12 +34,12 @@ public interface KeyValues {
      * Stores a key-value pair. If the key already exists, the value is updated in place
      * (the new value must be the same size as the existing one).
      *
-     * @param key the buffer containing the key
-     * @param keyOffset the offset of the key within the buffer
-     * @param keySize the size of the key in bytes
-     * @param value the buffer containing the value
+     * @param key         the buffer containing the key
+     * @param keyOffset   the offset of the key within the buffer
+     * @param keySize     the size of the key in bytes
+     * @param value       the buffer containing the value
      * @param valueOffset the offset of the value within the buffer
-     * @param valueSize the size of the value in bytes
+     * @param valueSize   the size of the value in bytes
      */
     void put(AtomicBuffer key,
              int keyOffset,
@@ -51,10 +51,10 @@ public interface KeyValues {
     /**
      * Retrieves the value associated with the given key.
      *
-     * @param key the buffer containing the key to look up
+     * @param key       the buffer containing the key to look up
      * @param keyOffset the offset of the key within the buffer
-     * @param keySize the size of the key in bytes
-     * @param consumer the consumer that will receive the value if found
+     * @param keySize   the size of the key in bytes
+     * @param consumer  the consumer that will receive the value if found
      * @return {@code true} if the key was found and the value delivered to the consumer
      */
     boolean get(AtomicBuffer key,

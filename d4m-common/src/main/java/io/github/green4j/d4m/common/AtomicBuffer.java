@@ -61,7 +61,7 @@ public interface AtomicBuffer {
      * this buffer's region.</p>
      *
      * @return the underlying {@link ByteBuffer}, or {@code null} if
-     *         backed by a raw {@code byte[]}
+     * backed by a raw {@code byte[]}
      */
     ByteBuffer byteBuffer();
 
@@ -307,7 +307,7 @@ public interface AtomicBuffer {
      * @param index    destination offset in this buffer
      * @param src      source buffer
      * @param srcIndex offset within the source buffer
-     * @param size   number of bytes to copy
+     * @param size     number of bytes to copy
      */
     void putBytes(int index,
                   AtomicBuffer src,

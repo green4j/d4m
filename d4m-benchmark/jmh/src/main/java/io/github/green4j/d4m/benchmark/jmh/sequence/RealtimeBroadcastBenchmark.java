@@ -122,7 +122,8 @@ public class RealtimeBroadcastBenchmark {
      */
     @State(Scope.Thread)
     public static class ReaderState {
-        private static final EntryConsumer NO_OP = (owner, order, buffer, offset, size) -> {};
+        private static final EntryConsumer NO_OP = (owner, order, buffer, offset, size) -> {
+        };
 
         private ForwardCursor fwd;
         private MergedForwardCursor mfwd;
@@ -205,7 +206,7 @@ public class RealtimeBroadcastBenchmark {
     /**
      * Reader side of the broadcast group: tails the cursor and accumulates entry counts.
      *
-     * @param rs the thread-local reader state
+     * @param rs       the thread-local reader state
      * @param counters auxiliary counters tracking entries consumed
      */
     @Benchmark

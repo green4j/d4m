@@ -54,9 +54,9 @@ public abstract class KeyValueSupport {
      * byte-level polynomial hashing (h = 31*h + byte), which produces
      * consistent results regardless of buffer alignment.
      *
-     * @param data the buffer containing the data to hash
+     * @param data   the buffer containing the data to hash
      * @param offset the starting offset within the buffer
-     * @param size the number of bytes to hash
+     * @param size   the number of bytes to hash
      * @return a positive hash value
      */
     public static int hash(final AtomicBuffer data,
@@ -83,12 +83,12 @@ public abstract class KeyValueSupport {
      * Compares two regions of {@link AtomicBuffer}s for byte-level equality,
      * using widened reads (long then int) when alignment allows.
      *
-     * @param array1 the first buffer
+     * @param array1  the first buffer
      * @param offset1 the offset in the first buffer
-     * @param size1 the number of bytes to compare from the first buffer
-     * @param array2 the second buffer
+     * @param size1   the number of bytes to compare from the first buffer
+     * @param array2  the second buffer
      * @param offset2 the offset in the second buffer
-     * @param size2 the number of bytes to compare from the second buffer
+     * @param size2   the number of bytes to compare from the second buffer
      * @return {@code true} if the two regions contain identical bytes
      */
     public static boolean equals(final AtomicBuffer array1,

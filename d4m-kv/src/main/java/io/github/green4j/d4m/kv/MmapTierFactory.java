@@ -52,19 +52,19 @@ public final class MmapTierFactory implements TierFactory, Closeable {
         /**
          * Called when a stale memory-mapped file is deleted during startup cleanup.
          *
-         * @param notifier the factory instance
-         * @param memoryMappedFileFolder the folder being cleaned
-         * @param memoryMappedFile the file that was deleted
+         * @param notifier       the factory instance
+         * @param mmapFileFolder the folder being cleaned
+         * @param mmapFile       the file that was deleted
          */
         void onMemoryMappedFileFolderCleanup(MmapTierFactory notifier,
-                                             File memoryMappedFileFolder,
-                                             File memoryMappedFile);
+                                             File mmapFileFolder,
+                                             File mmapFile);
 
         /**
          * Called when a new in-memory (heap or off-heap) tier buffer is created.
          *
-         * @param notifier the factory instance
-         * @param size the buffer size in bytes
+         * @param notifier  the factory instance
+         * @param size      the buffer size in bytes
          * @param isOffHeap {@code true} if off-heap memory was allocated
          */
         void onMemoryTierCreated(
@@ -92,41 +92,41 @@ public final class MmapTierFactory implements TierFactory, Closeable {
     private final int memoryTierSize;
     private final boolean memoryTierOffHeap;
     private final int memoryTierInitialCapacity;
-    private final int memoryMappedFileTierSize;
-    private final int memoryMappedFileTierInitialCapacity;
-    private final File memoryMappedFileFolder;
+    private final int mmapFileTierSize;
+    private final int mmapFileTierInitialCapacity;
+    private final File mmapFileFolder;
     private final int maxNumberOfTiers;
     private final Listener listener;
 
     /**
      * Creates a new factory that produces tiers for the given segment id.
      *
-     * @param id the segment identifier used to namespace memory-mapped files
-     * @param memoryTierSize the byte size of the first (in-memory) tier buffer
-     * @param memoryTierOffHeap {@code true} to allocate the first tier off-heap
-     * @param memoryTierInitialCapacity the initial metadata capacity for the memory tier
-     * @param memoryMappedFileTierSize the byte size of each memory-mapped file tier
-     * @param memoryMappedFileTierInitialCapacity the initial metadata capacity for mmap tiers
-     * @param memoryMappedFileFolder the directory for memory-mapped files
-     * @param maxNumberOfTiers the maximum number of tiers this factory will create
-     * @param listener optional listener for lifecycle events, or {@code null}
+     * @param id                          the segment identifier used to namespace memory-mapped files
+     * @param memoryTierSize              the byte size of the first (in-memory) tier buffer
+     * @param memoryTierOffHeap           {@code true} to allocate the first tier off-heap
+     * @param memoryTierInitialCapacity   the initial metadata capacity for the memory tier
+     * @param mmapFileTierSize            the byte size of each memory-mapped file tier
+     * @param mmapFileTierInitialCapacity the initial metadata capacity for mmap tiers
+     * @param mmapFileFolder              the directory for memory-mapped files
+     * @param maxNumberOfTiers            the maximum number of tiers this factory will create
+     * @param listener                    optional listener for lifecycle events, or {@code null}
      */
     public MmapTierFactory(final int id,
                            final int memoryTierSize,
                            final boolean memoryTierOffHeap,
                            final int memoryTierInitialCapacity,
-                           final int memoryMappedFileTierSize,
-                           final int memoryMappedFileTierInitialCapacity,
-                           final File memoryMappedFileFolder,
+                           final int mmapFileTierSize,
+                           final int mmapFileTierInitialCapacity,
+                           final File mmapFileFolder,
                            final int maxNumberOfTiers,
                            final Listener listener) {
         this.id = id;
         this.memoryTierSize = memoryTierSize;
         this.memoryTierOffHeap = memoryTierOffHeap;
         this.memoryTierInitialCapacity = memoryTierInitialCapacity;
-        this.memoryMappedFileTierSize = memoryMappedFileTierSize;
-        this.memoryMappedFileTierInitialCapacity = memoryMappedFileTierInitialCapacity;
-        this.memoryMappedFileFolder = memoryMappedFileFolder;
+        this.mmapFileTierSize = mmapFileTierSize;
+        this.mmapFileTierInitialCapacity = mmapFileTierInitialCapacity;
+        this.mmapFileFolder = mmapFileFolder;
         this.maxNumberOfTiers = maxNumberOfTiers;
         this.listener = listener;
 
@@ -164,7 +164,7 @@ public final class MmapTierFactory implements TierFactory, Closeable {
             }
             default: {
                 buffer = createMemoryMappedBuffer(currentSize);
-                initialCapacity = memoryMappedFileTierInitialCapacity;
+                initialCapacity = mmapFileTierInitialCapacity;
                 break;
             }
         }
@@ -188,12 +188,12 @@ public final class MmapTierFactory implements TierFactory, Closeable {
             return;
         }
 
-        if (memoryMappedFileFolder.exists()) {
-            if (!memoryMappedFileFolder.isDirectory()) {
-                throw new IllegalArgumentException(memoryMappedFileFolder + " is not a folder");
+        if (mmapFileFolder.exists()) {
+            if (!mmapFileFolder.isDirectory()) {
+                throw new IllegalArgumentException(mmapFileFolder + " is not a folder");
             }
             try (DirectoryStream<Path> stream = Files.newDirectoryStream(
-                    memoryMappedFileFolder.toPath(),
+                    mmapFileFolder.toPath(),
                     MMAP_FILE_PREFIX + id + "-*" + MMAP_FILE_EXTENSION
             )) {
                 for (final Path filePath : stream) {
@@ -207,7 +207,7 @@ public final class MmapTierFactory implements TierFactory, Closeable {
                         if (listener != null) {
                             listener.onMemoryMappedFileFolderCleanup(
                                     this,
-                                    memoryMappedFileFolder,
+                                    mmapFileFolder,
                                     file
                             );
                         }
@@ -217,7 +217,7 @@ public final class MmapTierFactory implements TierFactory, Closeable {
                 throw new UncheckedIOException(e);
             }
         } else {
-            memoryMappedFileFolder.mkdirs();
+            mmapFileFolder.mkdirs();
         }
     }
 
@@ -241,7 +241,7 @@ public final class MmapTierFactory implements TierFactory, Closeable {
 
     private AtomicBuffer createMemoryMappedBuffer(final int tierIndex) throws IOException {
         final File file = new File(
-                memoryMappedFileFolder,
+                mmapFileFolder,
                 "mmap-kv-" + id + "-" + tierIndex + MMAP_FILE_EXTENSION
         );
         file.createNewFile();
@@ -255,11 +255,11 @@ public final class MmapTierFactory implements TierFactory, Closeable {
 
             fileChannel.write(
                     ByteBuffer.allocate(1),
-                    memoryMappedFileTierSize - 1
+                    mmapFileTierSize - 1
             );
 
             final MappedByteBuffer mappedBuffer = fileChannel.map(
-                    FileChannel.MapMode.READ_WRITE, 0, memoryMappedFileTierSize
+                    FileChannel.MapMode.READ_WRITE, 0, mmapFileTierSize
             );
 
             result = new UnsafeBuffer(

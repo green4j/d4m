@@ -23,6 +23,9 @@
  */
 package io.github.green4j.d4m.sequence;
 
+import io.github.green4j.d4m.common.AtomicBuffer;
+import io.github.green4j.d4m.common.UnsafeBuffer;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -97,12 +100,12 @@ final class TestHarness {
      * @param size the buffer size in bytes
      * @return a new buffer with patterned data
      */
-    static io.github.green4j.d4m.common.AtomicBuffer payload(final int size) {
+    static AtomicBuffer payload(final int size) {
         final byte[] data = new byte[size];
         for (int i = 0; i < size; i++) {
             data[i] = (byte) (i & 0xFF);
         }
-        return new io.github.green4j.d4m.common.UnsafeBuffer(data);
+        return new UnsafeBuffer(data);
     }
 
     /**
@@ -111,13 +114,13 @@ final class TestHarness {
      * @param id the identifier to encode
      * @return a new 8-byte buffer containing the encoded id
      */
-    static io.github.green4j.d4m.common.AtomicBuffer payloadWithId(final int id) {
+    static AtomicBuffer payloadWithId(final int id) {
         final byte[] data = new byte[8];
         data[0] = (byte) (id & 0xFF);
         data[1] = (byte) ((id >> 8) & 0xFF);
         data[2] = (byte) ((id >> 16) & 0xFF);
         data[3] = (byte) ((id >> 24) & 0xFF);
-        return new io.github.green4j.d4m.common.UnsafeBuffer(data);
+        return new UnsafeBuffer(data);
     }
 
     /**

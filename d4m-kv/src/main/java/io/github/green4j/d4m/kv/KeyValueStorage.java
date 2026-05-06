@@ -30,7 +30,7 @@ import java.nio.file.Paths;
 
 /**
  * A thread-safe {@link KeyValues} backed by a {@link KeyValueRing} of
- * {@link KeyValueSegment}s with tiered hot-memory and memory-mapped file storage.
+ * {@link KeyValueSegment}s with tiered main memory and memory-mapped file storage.
  * Use {@link #builder()} to configure and construct instances.
  */
 public final class KeyValueStorage implements KeyValues {
@@ -47,7 +47,7 @@ public final class KeyValueStorage implements KeyValues {
 
     /**
      * Fluent builder for configuring a {@link KeyValueStorage} instance,
-     * including hot memory size, memory-mapped file settings, and ring parameters.
+     * including main memory size, memory-mapped file settings, and ring parameters.
      */
     public static final class Builder {
         private long totalMainMemory = 128 * 1024 * 1024; // 128 MB
@@ -62,10 +62,10 @@ public final class KeyValueStorage implements KeyValues {
                 new MmapTierFactory.Listener() {
                     @Override
                     public void onMemoryMappedFileFolderCleanup(final MmapTierFactory notifier,
-                                                                final File memoryMappedFileFolder,
-                                                                final File memoryMappedFile) {
+                                                                final File mmapFileFolder,
+                                                                final File mmapFile) {
                         System.out.println("Memory Mapped File Folder Cleanup: "
-                                + memoryMappedFile.getAbsolutePath());
+                                + mmapFile.getAbsolutePath());
                     }
 
                     @Override
@@ -224,9 +224,9 @@ public final class KeyValueStorage implements KeyValues {
         }
 
         /**
-         * Returns the configured total hot memory in bytes.
+         * Returns the configured total main memory in bytes.
          *
-         * @return the total hot memory
+         * @return the total main memory
          */
         public long totalMainMemory() {
             return totalMainMemory;
@@ -311,26 +311,27 @@ public final class KeyValueStorage implements KeyValues {
         final int memoryTierSize = (int) (parameters.totalMainMemory / parameters.ringSize);
 
         final int memoryTierInitialCapacity = 65536;
-        final int memoryMappedFileTierInitialCapacity = 65536;
+        final int mmapFileTierInitialCapacity = 65536;
 
         ring = new KeyValueRing(
                 parameters.ringSize,
                 parameters.ringShuffleMultiplier,
-                (index -> new KeyValueSegment(
-                        parameters.prepareMmapFilesOnStart ? 2 : 1,
-                        new MmapTierFactory(
-                                index,
-                                memoryTierSize,
-                                parameters.useOffHeapMainMemory,
-                                memoryTierInitialCapacity,
-                                parameters.mmapFileSize,
-                                memoryMappedFileTierInitialCapacity,
-                                parameters.mmapFilesFolder,
-                                Integer.MAX_VALUE,
-                                builder().mmapTierListener
-                        ),
-                        null // no eviction with unlimited
-                )
+                (index ->
+                        new KeyValueSegment(
+                                parameters.prepareMmapFilesOnStart ? 2 : 1,
+                                new MmapTierFactory(
+                                        index,
+                                        memoryTierSize,
+                                        parameters.useOffHeapMainMemory,
+                                        memoryTierInitialCapacity,
+                                        parameters.mmapFileSize,
+                                        mmapFileTierInitialCapacity,
+                                        parameters.mmapFilesFolder,
+                                        Integer.MAX_VALUE,
+                                        builder().mmapTierListener
+                                ),
+                                null // no eviction with unlimited
+                        )
                 )
         );
     }

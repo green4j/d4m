@@ -23,6 +23,7 @@
  */
 package io.github.green4j.d4m.sequence;
 
+import io.github.green4j.d4m.common.AtomicBuffer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -49,7 +50,7 @@ class MergedBackwardCursorTest {
     }
 
     private void appendWithId(final Sequence ts, final long order, final int id) {
-        final io.github.green4j.d4m.common.AtomicBuffer pl = TestHarness.payloadWithId(id);
+        final AtomicBuffer pl = TestHarness.payloadWithId(id);
         ts.append(order, pl, 0, MSG_PAYLOAD);
     }
 

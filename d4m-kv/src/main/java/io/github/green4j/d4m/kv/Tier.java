@@ -53,7 +53,7 @@ public class Tier {
      * without an eviction listener.
      *
      * @param initialCapacity the initial number of metadata slots (rounded up to power of two)
-     * @param kvBuffer the buffer used to store key-value binary data
+     * @param kvBuffer        the buffer used to store key-value binary data
      */
     public Tier(final int initialCapacity,
                 final AtomicBuffer kvBuffer) {
@@ -68,8 +68,8 @@ public class Tier {
      * Creates a tier with the specified initial metadata capacity, binary buffer,
      * and an optional eviction listener.
      *
-     * @param initialCapacity the initial number of metadata slots (rounded up to power of two)
-     * @param kvBuffer the buffer used to store key-value binary data
+     * @param initialCapacity  the initial number of metadata slots (rounded up to power of two)
+     * @param kvBuffer         the buffer used to store key-value binary data
      * @param evictionListener listener notified when entries are evicted, or {@code null}
      */
     public Tier(final int initialCapacity,
@@ -195,12 +195,12 @@ public class Tier {
      * Inserts or updates a key-value pair where the key and value are
      * stored contiguously in a single buffer.
      *
-     * @param hash the pre-computed positive hash of the key
-     * @param keyValue the buffer containing key followed by value
-     * @param keyOffset the offset of the key within the buffer
-     * @param keySize the size of the key in bytes
+     * @param hash        the pre-computed positive hash of the key
+     * @param keyValue    the buffer containing key followed by value
+     * @param keyOffset   the offset of the key within the buffer
+     * @param keySize     the size of the key in bytes
      * @param valueOffset the offset of the value within the buffer
-     * @param valueSize the size of the value in bytes
+     * @param valueSize   the size of the value in bytes
      */
     public void put(final int hash,
                     final AtomicBuffer keyValue,
@@ -260,13 +260,13 @@ public class Tier {
      * in separate buffers. On update the new value must be the same size
      * as the existing one.
      *
-     * @param hash the pre-computed positive hash of the key
-     * @param key the buffer containing the key
-     * @param keyOffset the offset of the key within the key buffer
-     * @param keySize the size of the key in bytes
-     * @param value the buffer containing the value
+     * @param hash        the pre-computed positive hash of the key
+     * @param key         the buffer containing the key
+     * @param keyOffset   the offset of the key within the key buffer
+     * @param keySize     the size of the key in bytes
+     * @param value       the buffer containing the value
      * @param valueOffset the offset of the value within the value buffer
-     * @param valueSize the size of the value in bytes
+     * @param valueSize   the size of the value in bytes
      */
     public void put(final int hash,
                     final AtomicBuffer key,
@@ -326,13 +326,13 @@ public class Tier {
     /**
      * Looks up the value associated with a key and delivers it to the consumer.
      *
-     * @param hash the pre-computed positive hash of the key
-     * @param key the buffer containing the key
-     * @param offset the offset of the key within the buffer
-     * @param size the size of the key in bytes
+     * @param hash     the pre-computed positive hash of the key
+     * @param key      the buffer containing the key
+     * @param offset   the offset of the key within the buffer
+     * @param size     the size of the key in bytes
      * @param consumer the consumer that receives the value if found
-     * @param <V> the value type
-     * @param <C> the consumer type
+     * @param <V>      the value type
+     * @param <C>      the consumer type
      * @return {@code true} if the key was found and the value delivered
      */
     public <V extends KeyValueConsuming.Value, C extends KeyValueConsuming.ValueConsumer<V>> boolean get(
@@ -358,10 +358,10 @@ public class Tier {
     /**
      * Checks whether a key exists in this tier.
      *
-     * @param hash the pre-computed positive hash of the key
-     * @param key the buffer containing the key
+     * @param hash   the pre-computed positive hash of the key
+     * @param key    the buffer containing the key
      * @param offset the offset of the key within the buffer
-     * @param size the size of the key in bytes
+     * @param size   the size of the key in bytes
      * @return {@code true} if the key is present
      */
     public boolean containsKey(
@@ -525,9 +525,9 @@ public class Tier {
      * An element can move to fill a gap if the gap is in its probing path
      * from ideal to current index.
      *
-     * @param idealSlot the ideal index (hash & capacityMask) of the element
-     * @param emptySlot the slot index of the gap to fill
-     * @param currentSlot the slot index of the candidate entry
+     * @param idealSlot    the ideal index (hash & capacityMask) of the element
+     * @param emptySlot    the slot index of the gap to fill
+     * @param currentSlot  the slot index of the candidate entry
      * @param capacityMask {@code capacity - 1} for the metadata table
      * @return true if the element can move to fill the gap
      */

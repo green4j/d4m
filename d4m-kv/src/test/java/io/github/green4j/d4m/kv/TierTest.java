@@ -113,7 +113,8 @@ class TierTest {
             final Tier tier = new Tier(
                     8,
                     new UnsafeBuffer(new byte[BUFFER_SIZE]),
-                    (notifier, hash, kv, ko, kl, vo, vl) -> { }
+                    (notifier, hash, kv, ko, kl, vo, vl) -> {
+                    }
             );
             assertNotNull(tier);
             assertTrue(tier.isEmpty());

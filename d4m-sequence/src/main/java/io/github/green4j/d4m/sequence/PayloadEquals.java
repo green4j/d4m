@@ -23,6 +23,8 @@
  */
 package io.github.green4j.d4m.sequence;
 
+import io.github.green4j.d4m.common.AtomicBuffer;
+
 /**
  * Predicate for comparing two entry payloads for logical equality.
  * Used by insert-or-update operations to locate a matching existing entry.
@@ -41,6 +43,6 @@ public interface PayloadEquals {
      * @param payload2Size   size of the second payload in bytes
      * @return {@code true} if the payloads are equal
      */
-    boolean eq(io.github.green4j.d4m.common.AtomicBuffer payload1, int payload1Offset, int payload1Size,
-               io.github.green4j.d4m.common.AtomicBuffer payload2, int payload2Offset, int payload2Size);
+    boolean eq(AtomicBuffer payload1, int payload1Offset, int payload1Size,
+               AtomicBuffer payload2, int payload2Offset, int payload2Size);
 }

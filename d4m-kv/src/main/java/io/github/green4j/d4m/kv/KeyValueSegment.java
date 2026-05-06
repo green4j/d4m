@@ -45,8 +45,8 @@ public class KeyValueSegment {
     /**
      * Creates a segment that pre-allocates the given number of tiers on construction.
      *
-     * @param startSize the number of tiers to create immediately
-     * @param factory the factory used to create new tiers
+     * @param startSize        the number of tiers to create immediately
+     * @param factory          the factory used to create new tiers
      * @param evictionListener listener notified when data is evicted from the coldest tier,
      *                         or {@code null} if evicted data can be silently dropped
      */
@@ -162,13 +162,13 @@ public class KeyValueSegment {
      * Inserts or updates a key-value pair in the hottest (first) tier.
      * If no tiers exist yet, one is created on demand.
      *
-     * @param hash the pre-computed hash of the key
-     * @param key the buffer containing the key
-     * @param keyOffset the offset of the key within the buffer
-     * @param keySize the size of the key in bytes
-     * @param value the buffer containing the value
+     * @param hash        the pre-computed hash of the key
+     * @param key         the buffer containing the key
+     * @param keyOffset   the offset of the key within the buffer
+     * @param keySize     the size of the key in bytes
+     * @param value       the buffer containing the value
      * @param valueOffset the offset of the value within the buffer
-     * @param valueSize the size of the value in bytes
+     * @param valueSize   the size of the value in bytes
      */
     public void put(final int hash,
                     final AtomicBuffer key,
@@ -208,11 +208,11 @@ public class KeyValueSegment {
     /**
      * Searches all tiers (from hottest to coldest) for a value matching the given key.
      *
-     * @param hash the pre-computed hash of the key
-     * @param key the buffer containing the key
+     * @param hash      the pre-computed hash of the key
+     * @param key       the buffer containing the key
      * @param keyOffset the offset of the key within the buffer
-     * @param keySize the size of the key in bytes
-     * @param consumer the consumer that will receive the value if found
+     * @param keySize   the size of the key in bytes
+     * @param consumer  the consumer that will receive the value if found
      * @return {@code true} if the key was found in any tier
      */
     public boolean get(final int hash,

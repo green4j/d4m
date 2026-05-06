@@ -23,6 +23,7 @@
  */
 package io.github.green4j.d4m.sequence;
 
+import io.github.green4j.d4m.common.AtomicBuffer;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -132,7 +133,7 @@ class MmapChunkAllocatorTest {
                     new AtomicLong()
             );
             final Chunk chunk1 = alloc.allocate();
-            final io.github.green4j.d4m.common.AtomicBuffer firstBuffer = chunk1.buffer();
+            final AtomicBuffer firstBuffer = chunk1.buffer();
             final long firstEpoch = chunk1.getChunkEpoch();
 
             alloc.free(chunk1);
@@ -173,7 +174,7 @@ class MmapChunkAllocatorTest {
             final Chunk chunk = alloc.allocate();
             chunk.casRefCount(0, 1);
 
-            final Set<io.github.green4j.d4m.common.AtomicBuffer> allocated = new HashSet<>();
+            final Set<AtomicBuffer> allocated = new HashSet<>();
             allocated.add(chunk.buffer());
 
             alloc.submitPendingReclamation(chunk);

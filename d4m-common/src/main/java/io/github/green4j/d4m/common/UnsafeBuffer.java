@@ -112,7 +112,7 @@ public final class UnsafeBuffer implements AtomicBuffer {
      *
      * @param array  the byte array to wrap
      * @param offset starting byte offset within the array
-     * @param size number of bytes to expose
+     * @param size   number of bytes to expose
      */
     public UnsafeBuffer(final byte[] array,
                         final int offset,
@@ -134,7 +134,7 @@ public final class UnsafeBuffer implements AtomicBuffer {
      *
      * @param buffer the ByteBuffer to wrap (heap or direct)
      * @param offset starting byte offset within the ByteBuffer
-     * @param size number of bytes to expose
+     * @param size   number of bytes to expose
      */
     public UnsafeBuffer(final ByteBuffer buffer,
                         final int offset,
@@ -156,7 +156,7 @@ public final class UnsafeBuffer implements AtomicBuffer {
      *
      * @param array  the byte array to wrap
      * @param offset starting byte offset within the array
-     * @param size number of bytes to expose
+     * @param size   number of bytes to expose
      */
     public void wrap(final byte[] array,
                      final int offset,
@@ -183,7 +183,7 @@ public final class UnsafeBuffer implements AtomicBuffer {
      *
      * @param buffer the ByteBuffer to wrap (heap or direct)
      * @param offset starting byte offset within the ByteBuffer
-     * @param size number of bytes to expose
+     * @param size   number of bytes to expose
      */
     public void wrap(final ByteBuffer buffer,
                      final int offset,

@@ -23,6 +23,8 @@
  */
 package io.github.green4j.d4m.sequence;
 
+import io.github.green4j.d4m.common.AtomicBuffer;
+
 import java.util.Arrays;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
@@ -93,6 +95,14 @@ public final class Sequence {
     private int writerTailEntryCount;
     private long writerTailMaxOrder = Long.MIN_VALUE;
 
+    // Reusable scratch arrays for insertBatch grouping (writer-thread only).
+    // Grown on demand, never shrunk — avoids per-call GC pressure.
+    private int[] batchGroupChunkIdx = new int[16];
+    private int[] batchGroupFrom = new int[16];
+    private int[] batchGroupTo = new int[16];
+    private Chunk[][] batchRebuilt = new Chunk[16][];
+    private Chunk[] batchOldChunks = new Chunk[16];
+
     /**
      * Creates a new sequence.
      *
@@ -150,11 +160,11 @@ public final class Sequence {
      * @param payloadOffset offset within {@code payload}
      * @param payloadSize   size of the payload in bytes
      * @return {@code true} if the entry was appended; {@code false} if the
-     *         order violates the non-decreasing constraint
+     * order violates the non-decreasing constraint
      * @throws IllegalArgumentException if the entry exceeds chunk data capacity
      */
     public boolean append(final long order,
-                          final io.github.green4j.d4m.common.AtomicBuffer payload,
+                          final AtomicBuffer payload,
                           final int payloadOffset,
                           final int payloadSize) {
         final int entrySize = Chunk.entrySize(payloadSize);
@@ -197,16 +207,16 @@ public final class Sequence {
      * populates the writer-local tail cache so subsequent calls take the
      * fast path.
      *
-     * @param order logical order key for the new entry
-     * @param entrySize total serialized entry size in bytes
-     * @param payload buffer holding the payload bytes
+     * @param order         logical order key for the new entry
+     * @param entrySize     total serialized entry size in bytes
+     * @param payload       buffer holding the payload bytes
      * @param payloadOffset offset of the payload within {@code payload}
-     * @param payloadSize length of the payload in bytes
+     * @param payloadSize   length of the payload in bytes
      * @return {@code true} if the entry was appended successfully
      */
     private boolean appendSlowPath(final long order,
                                    final int entrySize,
-                                   final io.github.green4j.d4m.common.AtomicBuffer payload,
+                                   final AtomicBuffer payload,
                                    final int payloadOffset,
                                    final int payloadSize) {
         final ChunkSnapshot currentSnapshot = snapshot;
@@ -275,11 +285,11 @@ public final class Sequence {
      * @param payloadSizes   per-entry payload sizes in bytes
      * @param entryCount     number of entries to append
      * @return number of entries actually appended (may be less than
-     *         {@code entryCount} on ordering violation or if {@code entryCount < 1})
+     * {@code entryCount} on ordering violation or if {@code entryCount < 1})
      * @throws IllegalArgumentException if any single entry exceeds chunk data capacity
      */
     public int appendBatch(final long[] orders,
-                           final io.github.green4j.d4m.common.AtomicBuffer payloads,
+                           final AtomicBuffer payloads,
                            final int[] payloadOffsets,
                            final int[] payloadSizes,
                            final int entryCount) {
@@ -302,7 +312,7 @@ public final class Sequence {
         int writtenEntries = 0;
         while (writtenEntries < entryCount) {
             if (tail == null || tail.isSealed()) {
-                tail = allocateAndPublish();
+                tail = spineAppend();
             }
 
             final int currentEntryCount = tail.getEntryCount();
@@ -363,6 +373,9 @@ public final class Sequence {
                 break;
             }
         }
+        if (writtenEntries > 0) {
+            publishSnapshot();
+        }
         return writtenEntries;
     }
 
@@ -375,10 +388,10 @@ public final class Sequence {
      * @param offset        starting offset within {@code packedEntries}
      * @param entryCount    number of entries to append
      * @return number of entries actually appended (may be less than
-     *         {@code entryCount} on ordering violation)
+     * {@code entryCount} on ordering violation)
      * @throws IllegalArgumentException if any single entry exceeds chunk data capacity
      */
-    public int appendBatchPacked(final io.github.green4j.d4m.common.AtomicBuffer packedEntries,
+    public int appendBatchPacked(final AtomicBuffer packedEntries,
                                  final int offset,
                                  final int entryCount) {
         invalidateWriterTail();
@@ -397,7 +410,7 @@ public final class Sequence {
         int written = 0;
         while (written < entryCount) {
             if (tail == null || tail.isSealed()) {
-                tail = allocateAndPublish();
+                tail = spineAppend();
             }
 
             final int currentEntryCount = tail.getEntryCount();
@@ -469,6 +482,9 @@ public final class Sequence {
                 break;
             }
         }
+        if (written > 0) {
+            publishSnapshot();
+        }
         return written;
     }
 
@@ -484,7 +500,7 @@ public final class Sequence {
      * @throws IllegalArgumentException if the entry exceeds chunk data capacity
      */
     public void insert(final long order,
-                       final io.github.green4j.d4m.common.AtomicBuffer payload,
+                       final AtomicBuffer payload,
                        final int payloadOffset,
                        final int payloadSize) {
         checkFits(payloadSize);
@@ -501,6 +517,163 @@ public final class Sequence {
     }
 
     /**
+     * Inserts a batch of pre-sorted entries into the sequence using batched
+     * copy-on-write. Entries whose order exceeds the current maximum are
+     * appended to the tail. Entries that fall within existing chunks are
+     * merged into those chunks via a single COW rebuild per affected chunk.
+     * A single snapshot is published at the end of the operation, making the
+     * entire batch visible to readers atomically.
+     *
+     * <p>The caller <b>must</b> supply entries sorted in non-decreasing order.
+     * Violating this precondition produces undefined results.</p>
+     *
+     * @param orders         array of ordering keys (must be non-decreasing)
+     * @param payloads       buffer containing all entry payloads
+     * @param payloadOffsets offsets within {@code payloads} for each entry
+     * @param payloadSizes   sizes of each entry's payload in bytes
+     * @param entryCount     number of entries to insert
+     * @return number of entries actually inserted
+     * @throws IllegalArgumentException if any single entry exceeds chunk data capacity
+     */
+    public int insertBatch(final long[] orders,
+                           final AtomicBuffer payloads,
+                           final int[] payloadOffsets,
+                           final int[] payloadSizes,
+                           final int entryCount) {
+        invalidateWriterTail();
+        if (entryCount < 1) {
+            return 0;
+        }
+        for (int i = 0; i < entryCount; i++) {
+            if (Chunk.entrySize(payloadSizes[i]) > dataCap) {
+                throw new IllegalArgumentException("entry " + i + " too large: " + payloadSizes[i]);
+            }
+        }
+        drainSwaps();
+
+        final ChunkSnapshot currentSnapshot = snapshot;
+
+        if (currentSnapshot.isEmpty()) {
+            return appendBatchInternal(orders, payloads, payloadOffsets, payloadSizes, 0, entryCount);
+        }
+
+        final long maxOrd = maxOrder(currentSnapshot);
+
+        // Partition: find first entry that goes to the append path (order >= maxOrd)
+        int cowEnd = entryCount;
+        for (int i = 0; i < entryCount; i++) {
+            if (orders[i] >= maxOrd) {
+                cowEnd = i;
+                break;
+            }
+        }
+
+        if (cowEnd == 0) {
+            return appendBatchInternal(orders, payloads, payloadOffsets, payloadSizes, 0, entryCount);
+        }
+
+        // Group COW entries by target chunk. For each entry, first check if it
+        // falls inside an existing chunk's [min, max] range; if not (gap case),
+        // use insertionChunkIndex to find the preceding chunk. Hinted search
+        // exploits the non-decreasing chunk index property of sorted input.
+        if (cowEnd > batchGroupChunkIdx.length) {
+            final int newLen = Math.max(cowEnd, batchGroupChunkIdx.length * 2);
+            batchGroupChunkIdx = new int[newLen];
+            batchGroupFrom = new int[newLen];
+            batchGroupTo = new int[newLen];
+        }
+        int groupCount = 0;
+
+        int prevChunkIdx = -1;
+        int hint = 0;
+        for (int i = 0; i < cowEnd; i++) {
+            int chunkIdx = searchChunkFrom(currentSnapshot, orders[i], hint);
+            if (chunkIdx < 0) {
+                chunkIdx = insertionChunkIndexFrom(currentSnapshot, orders[i], hint);
+            }
+            hint = chunkIdx;
+            if (chunkIdx != prevChunkIdx) {
+                if (groupCount > 0) {
+                    batchGroupTo[groupCount - 1] = i;
+                }
+                batchGroupChunkIdx[groupCount] = chunkIdx;
+                batchGroupFrom[groupCount] = i;
+                groupCount++;
+                prevChunkIdx = chunkIdx;
+            }
+        }
+        batchGroupTo[groupCount - 1] = cowEnd;
+
+        // Rebuild each affected chunk (no publish yet)
+        if (groupCount > batchRebuilt.length) {
+            final int newLen = Math.max(groupCount, batchRebuilt.length * 2);
+            batchRebuilt = new Chunk[newLen][];
+            batchOldChunks = new Chunk[newLen];
+        }
+        for (int g = 0; g < groupCount; g++) {
+            final Chunk oldChunk = currentSnapshot.chunk(batchGroupChunkIdx[g]);
+            batchOldChunks[g] = oldChunk;
+            batchRebuilt[g] = cowRebuildMerged(
+                    oldChunk,
+                    oldChunk.getEntryCount(),
+                    orders, payloads, payloadOffsets, payloadSizes,
+                    batchGroupFrom[g], batchGroupTo[g]
+            );
+        }
+
+        // Append tail entries into new chunks (no publish)
+        final int tailFrom = cowEnd;
+        final int tailCount = entryCount - tailFrom;
+        Chunk[] tailChunks = null;
+        int tailChunkCount = 0;
+        if (tailCount > 0) {
+            tailChunks = new Chunk[Math.max(1, (tailCount + 1) / 2)];
+            Chunk tail = null;
+            int tailWritten = 0;
+            while (tailWritten < tailCount) {
+                if (tail == null) {
+                    tail = allocate();
+                    initChunk(tail);
+                    if (tailChunkCount >= tailChunks.length) {
+                        tailChunks = Arrays.copyOf(tailChunks, tailChunks.length * 2);
+                    }
+                    tailChunks[tailChunkCount++] = tail;
+                }
+                final int idx = tailFrom + tailWritten;
+                final int entrySize = Chunk.entrySize(payloadSizes[idx]);
+                final int nextOff = tail.getDataWriteOffset();
+                if (nextOff + entrySize > chunkSize) {
+                    sealEnqueue(tail);
+                    tail = null;
+                    continue;
+                }
+                tail.writeEntry(nextOff, orders[idx], nextEntryVersion++,
+                        payloads, payloadOffsets[idx], payloadSizes[idx]);
+                tail.putDataWriteOffset(nextOff + entrySize);
+                final int ec = tail.getEntryCount();
+                if (ec == 0) {
+                    tail.putMinOrder(orders[idx]);
+                }
+                tail.putMaxOrder(orders[idx]);
+                tail.putEntryCountOrdered(ec + 1);
+                tailWritten++;
+            }
+        }
+
+        // Single-pass spine construction + single publish
+        pubCowBatch(currentSnapshot, batchGroupChunkIdx, batchRebuilt, batchOldChunks,
+                groupCount, tailChunks, tailChunkCount);
+
+        // Null out chunk references to avoid retaining them across calls
+        for (int g = 0; g < groupCount; g++) {
+            batchRebuilt[g] = null;
+            batchOldChunks[g] = null;
+        }
+
+        return entryCount;
+    }
+
+    /**
      * Inserts a new entry or replaces the first existing entry with the same
      * order (upsert semantics, assuming orders are unique). If no matching
      * entry exists and the order exceeds the current maximum, the entry is
@@ -513,7 +686,7 @@ public final class Sequence {
      * @throws IllegalArgumentException if the entry exceeds chunk data capacity
      */
     public void insertOrUpdateUnique(final long order,
-                                     final io.github.green4j.d4m.common.AtomicBuffer payload,
+                                     final AtomicBuffer payload,
                                      final int payloadOffset,
                                      final int payloadSize) {
         checkFits(payloadSize);
@@ -546,7 +719,7 @@ public final class Sequence {
      * @throws IllegalArgumentException if the entry exceeds chunk data capacity
      */
     public void insertOrUpdateEqual(final long order,
-                                    final io.github.green4j.d4m.common.AtomicBuffer payload,
+                                    final AtomicBuffer payload,
                                     final int payloadOffset,
                                     final int payloadSize,
                                     final PayloadEquals eq) {
@@ -608,6 +781,261 @@ public final class Sequence {
     }
 
     /**
+     * Merge-rebuilds a single old chunk with a slice of sorted batch entries.
+     * Walks both streams (old chunk entries and batch entries) in order,
+     * emitting each to the {@link RebuildWriter}. Produces 1+ new chunks.
+     *
+     * @param oldChunk       the source chunk to merge into
+     * @param oldEntryCount  number of entries in {@code oldChunk}
+     * @param orders         batch ordering keys
+     * @param payloads       batch payload buffer
+     * @param payloadOffsets batch payload offsets
+     * @param payloadSizes   batch payload sizes
+     * @param from           inclusive start index in the batch arrays
+     * @param to             exclusive end index in the batch arrays
+     * @return array of newly built chunks
+     */
+    private Chunk[] cowRebuildMerged(final Chunk oldChunk,
+                                     final int oldEntryCount,
+                                     final long[] orders,
+                                     final AtomicBuffer payloads,
+                                     final int[] payloadOffsets,
+                                     final int[] payloadSizes,
+                                     final int from,
+                                     final int to) {
+        final int batchCount = to - from;
+        int batchBytes = 0;
+        for (int i = from; i < to; i++) {
+            batchBytes += Chunk.entrySize(payloadSizes[i]);
+        }
+        final int oldData = oldChunk.getDataWriteOffset() - Chunk.HEADER_SIZE;
+        final int est = Math.max(1, (oldData + batchBytes + dataCap - 1) / dataCap);
+        rebuildWriter.reset(est);
+
+        int oldOff = Chunk.HEADER_SIZE;
+        int oldIdx = 0;
+        int batchIdx = from;
+
+        while (oldIdx < oldEntryCount && batchIdx < to) {
+            final long oldOrder = oldChunk.entryOrder(oldOff);
+            if (oldOrder <= orders[batchIdx]) {
+                final int runStartOff = oldOff;
+                final long runMinOrder = oldOrder;
+                long runMaxOrder = oldOrder;
+                int runCount = 0;
+                while (oldIdx < oldEntryCount
+                        && oldChunk.entryOrder(oldOff) <= orders[batchIdx]) {
+                    runMaxOrder = oldChunk.entryOrder(oldOff);
+                    oldOff += oldChunk.entryTotalSize(oldOff);
+                    oldIdx++;
+                    runCount++;
+                }
+                rebuildWriter.emitBulkCopy(oldChunk, runStartOff,
+                        oldOff - runStartOff, runCount, runMinOrder, runMaxOrder);
+            } else {
+                rebuildWriter.emitNew(orders[batchIdx], nextEntryVersion++,
+                        payloads, payloadOffsets[batchIdx], payloadSizes[batchIdx]);
+                batchIdx++;
+            }
+        }
+
+        if (oldIdx < oldEntryCount) {
+            final long suffMinOrder = oldChunk.entryOrder(oldOff);
+            rebuildWriter.emitBulkCopy(oldChunk, oldOff,
+                    oldChunk.getDataWriteOffset() - oldOff,
+                    oldEntryCount - oldIdx,
+                    suffMinOrder, oldChunk.getMaxOrder());
+        }
+
+        while (batchIdx < to) {
+            rebuildWriter.emitNew(orders[batchIdx], nextEntryVersion++,
+                    payloads, payloadOffsets[batchIdx], payloadSizes[batchIdx]);
+            batchIdx++;
+        }
+
+        return rebuildWriter.done();
+    }
+
+    /**
+     * Constructs a new spine by splicing rebuilt chunk arrays in place of
+     * old chunks, appending tail chunks, and publishing a single snapshot.
+     * All replaced chunks are submitted for reclamation.
+     *
+     * @param forSnapshot  snapshot that was current when COW began
+     * @param chunkIndexes indices of chunks being replaced (ascending)
+     * @param rebuilt      rebuilt chunk arrays corresponding to each index
+     * @param oldChunks    original chunks being replaced
+     * @param groupCount   number of groups
+     * @param tailChunks   newly allocated tail chunks (may be {@code null})
+     * @param tailCount    number of tail chunks
+     */
+    private void pubCowBatch(final ChunkSnapshot forSnapshot,
+                             final int[] chunkIndexes,
+                             final Chunk[][] rebuilt,
+                             final Chunk[] oldChunks,
+                             final int groupCount,
+                             final Chunk[] tailChunks,
+                             final int tailCount) {
+        invalidateWriterTail();
+        drainSwapSearchStart = 0;
+
+        final int oldLiveSize = forSnapshot.size();
+        int totalRebuilt = 0;
+        for (int g = 0; g < groupCount; g++) {
+            totalRebuilt += rebuilt[g].length;
+        }
+        final int newLiveSize = oldLiveSize - groupCount + totalRebuilt + tailCount;
+
+        final int newSegCount = newLiveSize == 0 ? 0
+                : ((newLiveSize - 1) >> SEG_SHIFT) + 1;
+        final Chunk[][] newCS = new Chunk[newSegCount][];
+        final long[][] newES = new long[newSegCount][];
+        for (int s = 0; s < newSegCount; s++) {
+            newCS[s] = new Chunk[SEG_SIZE];
+            newES[s] = new long[SEG_SIZE];
+        }
+
+        int dstPos = 0;
+        int srcPos = 0;
+        for (int g = 0; g < groupCount; g++) {
+            final int chunkIdx = chunkIndexes[g];
+            // Copy unaffected chunks before this group
+            if (chunkIdx > srcPos) {
+                copySegmentedElements(chunkSpine, epochSpine, srcPos,
+                        newCS, newES, dstPos, chunkIdx - srcPos);
+                dstPos += chunkIdx - srcPos;
+            }
+            // Splice rebuilt chunks
+            for (int i = 0; i < rebuilt[g].length; i++) {
+                newCS[dstPos >> SEG_SHIFT][dstPos & SEG_MASK] = rebuilt[g][i];
+                newES[dstPos >> SEG_SHIFT][dstPos & SEG_MASK] = rebuilt[g][i].getChunkEpoch();
+                dstPos++;
+            }
+            srcPos = chunkIdx + 1;
+        }
+        // Copy remaining unaffected chunks after last group
+        if (srcPos < oldLiveSize) {
+            copySegmentedElements(chunkSpine, epochSpine, srcPos,
+                    newCS, newES, dstPos, oldLiveSize - srcPos);
+            dstPos += oldLiveSize - srcPos;
+        }
+        // Append tail chunks
+        for (int i = 0; i < tailCount; i++) {
+            newCS[dstPos >> SEG_SHIFT][dstPos & SEG_MASK] = tailChunks[i];
+            newES[dstPos >> SEG_SHIFT][dstPos & SEG_MASK] = tailChunks[i].getChunkEpoch();
+            dstPos++;
+        }
+
+        chunkSpine = newCS;
+        epochSpine = newES;
+        spineUsed = newSegCount;
+        chunksCount = newLiveSize;
+
+        // Seal all chunks except the new tail
+        for (int i = 0; i < newLiveSize - 1; i++) {
+            final Chunk c = newCS[i >> SEG_SHIFT][i & SEG_MASK];
+            if (!c.isSealed()) {
+                sealEnqueue(c);
+            }
+        }
+
+        publishSnapshot();
+
+        // Reclaim old chunks
+        for (int g = 0; g < groupCount; g++) {
+            final Chunk old = oldChunks[g];
+            if (!old.casEvictionState(Chunk.EVICTION_NONE, Chunk.EVICTION_IN_PROGRESS)) {
+                old.casEvictionState(Chunk.EVICTION_CANDIDATE, Chunk.EVICTION_IN_PROGRESS);
+            }
+            if (old.isMmapBased()) {
+                mmap.submitPendingReclamation(old);
+            } else {
+                heap.submitPendingReclamation(old);
+            }
+        }
+    }
+
+    /**
+     * Internal append-batch that defers snapshot publication. Used by
+     * {@link #insertBatch} when all entries go to the tail.
+     */
+    private int appendBatchInternal(final long[] orders,
+                                    final AtomicBuffer payloads,
+                                    final int[] payloadOffsets,
+                                    final int[] payloadSizes,
+                                    final int from,
+                                    final int entryCount) {
+        Chunk tail = tailChunk();
+        if (tail != null && orders[from] < tail.getMaxOrder()) {
+            return 0;
+        }
+
+        int writtenEntries = 0;
+        while (writtenEntries < entryCount - from) {
+            if (tail == null || tail.isSealed()) {
+                tail = spineAppend();
+            }
+
+            final int currentEntryCount = tail.getEntryCount();
+            int nextEntryOffset = tail.getDataWriteOffset();
+
+            int tailWrittenEntries = 0;
+            long tailMinOrder = (currentEntryCount == 0) ? Long.MAX_VALUE : tail.getMinOrder();
+            long tailMaxOrder = (currentEntryCount == 0) ? Long.MIN_VALUE : tail.getMaxOrder();
+
+            while (from + writtenEntries + tailWrittenEntries < entryCount) {
+                final int idx = from + writtenEntries + tailWrittenEntries;
+                final long order = orders[idx];
+                final int payloadSize = payloadSizes[idx];
+                final int entrySize = Chunk.entrySize(payloadSize);
+                if (nextEntryOffset + entrySize > chunkSize) {
+                    break;
+                }
+                if (order < tailMaxOrder) {
+                    break;
+                }
+
+                tail.writeEntry(nextEntryOffset, order, nextEntryVersion++,
+                        payloads, payloadOffsets[idx], payloadSize);
+                nextEntryOffset += entrySize;
+                if (order < tailMinOrder) {
+                    tailMinOrder = order;
+                }
+                if (order > tailMaxOrder) {
+                    tailMaxOrder = order;
+                }
+                tailWrittenEntries++;
+            }
+            if (tailWrittenEntries > 0) {
+                tail.putDataWriteOffset(nextEntryOffset);
+                if (currentEntryCount == 0) {
+                    tail.putMinOrder(tailMinOrder);
+                }
+                tail.putMaxOrder(tailMaxOrder);
+                tail.putEntryCountOrdered(currentEntryCount + tailWrittenEntries);
+                writtenEntries += tailWrittenEntries;
+            }
+
+            final int nextIdx = from + writtenEntries;
+            final boolean chunkFull = (nextIdx < entryCount)
+                    ? nextEntryOffset + Chunk.entrySize(payloadSizes[nextIdx]) > chunkSize
+                    : nextEntryOffset + Chunk.ENTRY_HEADER_SIZE > chunkSize;
+            if (chunkFull) {
+                sealEnqueue(tail);
+                tail = null;
+            }
+
+            if (tailWrittenEntries == 0 && from + writtenEntries < entryCount) {
+                break;
+            }
+        }
+        if (writtenEntries > 0) {
+            publishSnapshot();
+        }
+        return writtenEntries;
+    }
+
+    /**
      * Validates that a single entry with the given payload size fits
      * within the usable data area of a chunk.
      *
@@ -629,17 +1057,17 @@ public final class Sequence {
      * <p>The caller passes a previously read {@code forSnapshot} to
      * avoid a redundant volatile read of the {@code snapshot} field.
      *
-     * @param forSnapshot     snapshot already read by the caller
-     * @param order           ordering key of the entry
-     * @param payload         buffer containing the entry payload
-     * @param payloadOffset   offset within {@code payload}
-     * @param payloadSize     size of the payload in bytes
+     * @param forSnapshot   snapshot already read by the caller
+     * @param order         ordering key of the entry
+     * @param payload       buffer containing the entry payload
+     * @param payloadOffset offset within {@code payload}
+     * @param payloadSize   size of the payload in bytes
      * @return {@code true} if the entry was appended; {@code false} if the
-     *         order is strictly less than the tail's max order
+     * order is strictly less than the tail's max order
      */
     private boolean appendInternal(final ChunkSnapshot forSnapshot,
                                    final long order,
-                                   final io.github.green4j.d4m.common.AtomicBuffer payload,
+                                   final AtomicBuffer payload,
                                    final int payloadOffset,
                                    final int payloadSize) {
         invalidateWriterTail();
@@ -772,6 +1200,23 @@ public final class Sequence {
     }
 
     /**
+     * Allocates and initialises a new chunk, appends it to the spine arrays
+     * without publishing a snapshot. The caller is responsible for calling
+     * {@link #publishSnapshot()} after all mutations are complete.
+     *
+     * @return the newly allocated chunk
+     */
+    private Chunk spineAppend() {
+        final Chunk result = allocate();
+        initChunk(result);
+        ensureSegmentCapacity(chunksCount + 1);
+        setChunkAt(chunksCount, result);
+        setEpochAt(chunksCount, result.getChunkEpoch());
+        chunksCount++;
+        return result;
+    }
+
+    /**
      * Binary-searches the snapshot for the <b>leftmost</b> chunk whose order
      * range {@code [minOrder, maxOrder]} contains the given order. When a
      * matching chunk is found the search continues left ({@code high = mid - 1})
@@ -782,7 +1227,7 @@ public final class Sequence {
      * @param forSnapshot snapshot to search
      * @param order       the order to locate
      * @return index of the leftmost chunk containing the order, or {@code -1}
-     *         if no chunk's range includes it
+     * if no chunk's range includes it
      */
     private static int searchChunk(final ChunkSnapshot forSnapshot,
                                    final long order) {
@@ -830,6 +1275,53 @@ public final class Sequence {
     }
 
     /**
+     * Same as {@link #searchChunk} but starts the binary search from
+     * {@code lowHint}, exploiting the fact that sorted input produces
+     * non-decreasing chunk indices.
+     */
+    private static int searchChunkFrom(final ChunkSnapshot forSnapshot,
+                                       final long order,
+                                       final int lowHint) {
+        int low = lowHint, high = forSnapshot.size() - 1, result = -1;
+        while (low <= high) {
+            final int mid = (low + high) >>> 1;
+            final Chunk chunk = forSnapshot.chunk(mid);
+            final long minOrder = chunk.getMinOrder();
+            final long maxOrder = chunk.getMaxOrder();
+            if (order < minOrder) {
+                high = mid - 1;
+            } else if (order > maxOrder) {
+                low = mid + 1;
+            } else {
+                result = mid;
+                high = mid - 1;
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Same as {@link #insertionChunkIndex} but starts the binary search from
+     * {@code lowHint}, exploiting the fact that sorted input produces
+     * non-decreasing chunk indices.
+     */
+    private static int insertionChunkIndexFrom(final ChunkSnapshot forSnapshot,
+                                               final long order,
+                                               final int lowHint) {
+        int low = lowHint, high = forSnapshot.size() - 1, result = lowHint;
+        while (low <= high) {
+            final int mid = (low + high) >>> 1;
+            if (forSnapshot.chunk(mid).getMaxOrder() <= order) {
+                result = mid;
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+        return result;
+    }
+
+    /**
      * Returns the maximum order in the given snapshot (from the last chunk).
      *
      * @param forSnapshot non-empty snapshot
@@ -846,7 +1338,7 @@ public final class Sequence {
      *
      * @param forSnapshot      snapshot containing the target chunk
      * @param targetChunkIndex index of the chunk to rebuild
-     * @param targetEntryIndex  entry index within the chunk
+     * @param targetEntryIndex entry index within the chunk
      * @param order            ordering key of the replacement entry
      * @param payload          buffer containing the new payload
      * @param payloadOffset    offset within {@code payload}
@@ -856,7 +1348,7 @@ public final class Sequence {
                             final int targetChunkIndex,
                             final int targetEntryIndex,
                             final long order,
-                            final io.github.green4j.d4m.common.AtomicBuffer payload,
+                            final AtomicBuffer payload,
                             final int payloadOffset,
                             final int payloadSize) {
         final Chunk oldChunk = forSnapshot.chunk(targetChunkIndex);
@@ -889,34 +1381,34 @@ public final class Sequence {
      */
     private void cowInsert(final ChunkSnapshot forSnapshot,
                            final long order,
-                           final io.github.green4j.d4m.common.AtomicBuffer payload,
+                           final AtomicBuffer payload,
                            final int payloadOffset,
                            final int payloadSize) {
-        final int chunkIndex = insertionChunkIndex(forSnapshot, order);
-        final Chunk oldChunk = forSnapshot.chunk(chunkIndex);
+        final int chunkIdx = insertionChunkIndex(forSnapshot, order);
+        final Chunk oldChunk = forSnapshot.chunk(chunkIdx);
         final int oldEntryCount = oldChunk.getEntryCount();
 
-        int entryOffset = Chunk.HEADER_SIZE;
-        int entryIndex;
-        for (entryIndex = 0; entryIndex < oldEntryCount; entryIndex++) {
-            if (oldChunk.entryOrder(entryOffset) > order) {
+        int entryOff = Chunk.HEADER_SIZE;
+        int entryIdx;
+        for (entryIdx = 0; entryIdx < oldEntryCount; entryIdx++) {
+            if (oldChunk.entryOrder(entryOff) > order) {
                 break;
             }
-            entryOffset += oldChunk.entryTotalSize(entryOffset);
+            entryOff += oldChunk.entryTotalSize(entryOff);
         }
 
         final Chunk[] rebuilt = rebuild(
                 oldChunk,
                 oldEntryCount,
-                entryIndex,
-                entryIndex,
+                entryIdx,
+                entryIdx,
                 order,
                 nextEntryVersion++,
                 payload,
                 payloadOffset,
                 payloadSize
         );
-        pubCow(forSnapshot, chunkIndex, rebuilt);
+        pubCow(forSnapshot, chunkIdx, rebuilt);
     }
 
     /**
@@ -933,7 +1425,7 @@ public final class Sequence {
      */
     private void cowInsertAfterGroup(final ChunkSnapshot forSnapshot,
                                      final long order,
-                                     final io.github.green4j.d4m.common.AtomicBuffer payload,
+                                     final AtomicBuffer payload,
                                      final int payloadOffset,
                                      final int payloadSize,
                                      final int startChunkIndex) {
@@ -991,7 +1483,7 @@ public final class Sequence {
      * @param payloadOffset             offset within {@code payload}
      * @param payloadSize               size of the payload in bytes
      * @return array of newly built chunks; the caller must publish them via
-     *         {@link #pubCow} and must not reuse them in subsequent rebuilds
+     * {@link #pubCow} and must not reuse them in subsequent rebuilds
      */
     private Chunk[] rebuild(final Chunk oldChunk,
                             final int oldEntryCount,
@@ -999,7 +1491,7 @@ public final class Sequence {
                             final int rebuildEndIndexExcluded,
                             final long order,
                             final long version,
-                            final io.github.green4j.d4m.common.AtomicBuffer payload,
+                            final AtomicBuffer payload,
                             final int payloadOffset,
                             final int payloadSize) {
         final int newEntrySize = Chunk.entrySize(payloadSize);
@@ -1205,13 +1697,13 @@ public final class Sequence {
      * Copies elements between segmented arrays, using {@code System.arraycopy}
      * for bulk transfers within each segment boundary.
      *
-     * @param srcC source chunk spine segments
-     * @param srcE source epoch spine segments
+     * @param srcC       source chunk spine segments
+     * @param srcE       source epoch spine segments
      * @param srcPosInit source linear index (global position)
-     * @param dstC destination chunk spine segments
-     * @param dstE destination epoch spine segments
+     * @param dstC       destination chunk spine segments
+     * @param dstE       destination epoch spine segments
      * @param dstPosInit destination linear index
-     * @param countInit number of elements to copy
+     * @param countInit  number of elements to copy
      */
     private static void copySegmentedElements(
             final Chunk[][] srcC, final long[][] srcE, final int srcPosInit,
@@ -1333,8 +1825,8 @@ public final class Sequence {
      * @param chunk         the chunk to pin
      * @param expectedEpoch the epoch the chunk must still have
      * @return {@code true} if the chunk was successfully pinned with the
-     *         expected epoch; the caller must eventually call
-     *         {@link CursorSupport#decRef} to release it
+     * expected epoch; the caller must eventually call
+     * {@link CursorSupport#decRef} to release it
      */
     private static boolean directPin(final Chunk chunk,
                                      final long expectedEpoch) {
@@ -1431,29 +1923,29 @@ public final class Sequence {
          * the same order, scans forward for an entry whose payload matches
          * according to the supplied equality predicate.
          *
-         * @param forSnapshot  snapshot to search
-         * @param order        the shared order of the group
-         * @param payload      buffer containing the payload to match against
-         * @param payloadOffset offset within {@code payload}
-         * @param payloadSize  size of the payload in bytes
-         * @param initialChunkIdx chunk index to start scanning from
-         * @param initialEntryOff byte offset of the first entry to examine
-         * @param initialEntryIdx entry index within the starting chunk
-         * @param eq           predicate used to compare payloads for equality
+         * @param forSnapshot     snapshot to search
+         * @param order           the shared order of the group
+         * @param payload         buffer containing the payload to match against
+         * @param payloadOffset   offset within {@code payload}
+         * @param payloadSize     size of the payload in bytes
+         * @param startChunkIndex chunk index to start scanning from
+         * @param startEntryOffset byte offset of the first entry to examine
+         * @param startEntryIndex entry index within the starting chunk
+         * @param eq              predicate used to compare payloads for equality
          * @return {@code this} with populated fields if a match is found, {@code null} otherwise
          */
         EntrySearch findEqualInGroup(final ChunkSnapshot forSnapshot,
                                      final long order,
-                                     final io.github.green4j.d4m.common.AtomicBuffer payload,
+                                     final AtomicBuffer payload,
                                      final int payloadOffset,
                                      final int payloadSize,
-                                     final int initialChunkIdx,
-                                     final int initialEntryOff,
-                                     final int initialEntryIdx,
+                                     final int startChunkIndex,
+                                     final int startEntryOffset,
+                                     final int startEntryIndex,
                                      final PayloadEquals eq) {
-            int chunkIdx = initialChunkIdx;
-            int entryOff = initialEntryOff;
-            int entryIdx = initialEntryIdx;
+            int chunkIdx = startChunkIndex;
+            int entryOff = startEntryOffset;
+            int entryIdx = startEntryIndex;
             while (chunkIdx < forSnapshot.size()) {
                 final Chunk chunk = forSnapshot.chunk(chunkIdx);
                 final int entryCount = chunk.getEntryCount();
@@ -1506,32 +1998,32 @@ public final class Sequence {
          * @return {@code this} with populated fields if found, {@code null} otherwise
          */
         private GroupEndSearch find(final ChunkSnapshot forSnapshot,
-                            final long order,
-                            final int startChunkIndex) {
-            int ci = startChunkIndex;
-            while (ci < forSnapshot.size()) {
-                final Chunk chunk = forSnapshot.chunk(ci);
+                                    final long order,
+                                    final int startChunkIndex) {
+            int chunkIdx = startChunkIndex;
+            while (chunkIdx < forSnapshot.size()) {
+                final Chunk chunk = forSnapshot.chunk(chunkIdx);
                 final int entryCount = chunk.getEntryCount();
-                int entryOffset = Chunk.HEADER_SIZE;
+                int entryOff = Chunk.HEADER_SIZE;
                 boolean found = false;
                 for (int i = 0; i < entryCount; i++) {
-                    final long mt = chunk.entryOrder(entryOffset);
+                    final long mt = chunk.entryOrder(entryOff);
                     if (mt == order) {
                         found = true;
                     } else if (mt > order) {
-                        chunkIndex = ci;
+                        chunkIndex = chunkIdx;
                         entryIndex = i;
                         return this;
                     }
-                    entryOffset += chunk.entryTotalSize(entryOffset);
+                    entryOff += chunk.entryTotalSize(entryOff);
                 }
                 if (found) {
-                    if (ci + 1 < forSnapshot.size()
-                            && forSnapshot.chunk(ci + 1).getMinOrder() == order) {
-                        ci++;
+                    if (chunkIdx + 1 < forSnapshot.size()
+                            && forSnapshot.chunk(chunkIdx + 1).getMinOrder() == order) {
+                        chunkIdx++;
                         continue;
                     }
-                    chunkIndex = ci;
+                    chunkIndex = chunkIdx;
                     entryIndex = entryCount;
                     return this;
                 }
@@ -1548,8 +2040,11 @@ public final class Sequence {
      */
     private final class RebuildWriter {
         private Chunk[] scratch = new Chunk[4];
-        private int chunkIndex, entryOffset, entryCount;
-        private long minOrder, maxOrder;
+        private int chunkIndex;
+        private int entryOffset;
+        private int entryCount;
+        private long minOrder;
+        private long maxOrder;
 
         /**
          * Prepares the rebuild writer for a new session. Ensures the scratch
@@ -1582,17 +2077,17 @@ public final class Sequence {
          * Writes a brand-new entry into the current scratch chunk, spilling
          * to the next chunk if insufficient space remains.
          *
-         * @param order               ordering key of the new entry
-         * @param version             monotonic version assigned to the new entry
-         * @param payload             buffer containing the entry payload
-         * @param payloadOffset       offset within {@code payload}
-         * @param payloadSize         size of the payload in bytes
+         * @param order         ordering key of the new entry
+         * @param version       monotonic version assigned to the new entry
+         * @param payload       buffer containing the entry payload
+         * @param payloadOffset offset within {@code payload}
+         * @param payloadSize   size of the payload in bytes
          */
         private void emitNew(final long order,
-                     final long version,
-                     final io.github.green4j.d4m.common.AtomicBuffer payload,
-                     final int payloadOffset,
-                     final int payloadSize) {
+                             final long version,
+                             final AtomicBuffer payload,
+                             final int payloadOffset,
+                             final int payloadSize) {
             final int entrySize = Chunk.entrySize(payloadSize);
             spill(entrySize);
             scratch[chunkIndex].writeEntry(entryOffset, order, version, payload, payloadOffset, payloadSize);
@@ -1603,11 +2098,11 @@ public final class Sequence {
          * Copies a single entry verbatim from {@code srcChunk} into the current
          * scratch chunk, spilling to the next chunk if insufficient space remains.
          *
-         * @param srcChunk            source chunk containing the entry
-         * @param srcEntryOffset      byte offset of the entry within {@code srcChunk}
+         * @param srcChunk       source chunk containing the entry
+         * @param srcEntryOffset byte offset of the entry within {@code srcChunk}
          */
         private void emitCopy(final Chunk srcChunk,
-                      final int srcEntryOffset) {
+                              final int srcEntryOffset) {
             final int entrySize = srcChunk.entryTotalSize(srcEntryOffset);
             final long order = srcChunk.entryOrder(srcEntryOffset);
             spill(entrySize);
@@ -1628,11 +2123,11 @@ public final class Sequence {
          * @param maxOrd         maximum order among the block's entries
          */
         private void emitBulkCopy(final Chunk srcChunk,
-                          final int srcEntryOffset,
-                          final int byteLen,
-                          final int count,
-                          final long minOrd,
-                          final long maxOrd) {
+                                  final int srcEntryOffset,
+                                  final int byteLen,
+                                  final int count,
+                                  final long minOrd,
+                                  final long maxOrd) {
             if (count == 0) {
                 return;
             }
@@ -1697,8 +2192,8 @@ public final class Sequence {
             return out;
         }
 
-        private void spill(final int sz) {
-            if (entryOffset + sz > chunkSize && entryCount > 0) {
+        private void spill(final int size) {
+            if (entryOffset + size > chunkSize && entryCount > 0) {
                 finish(scratch[chunkIndex], entryOffset, entryCount, minOrder, maxOrder);
                 chunkIndex++;
                 if (chunkIndex >= scratch.length) {
@@ -1715,8 +2210,9 @@ public final class Sequence {
             }
         }
 
-        private void advise(final int sz, final long order) {
-            entryOffset += sz;
+        private void advise(final int size,
+                            final long order) {
+            entryOffset += size;
             entryCount++;
             if (order < minOrder) {
                 minOrder = order;
@@ -1727,10 +2223,10 @@ public final class Sequence {
         }
 
         private void finish(final Chunk chunk,
-                                   final int dataWriteOffset,
-                                   final int entryCount,
-                                   final long minOrder,
-                                   final long maxOrder) {
+                            final int dataWriteOffset,
+                            final int entryCount,
+                            final long minOrder,
+                            final long maxOrder) {
             chunk.putDataWriteOffset(dataWriteOffset);
             chunk.putMinOrder(minOrder);
             chunk.putMaxOrder(maxOrder);

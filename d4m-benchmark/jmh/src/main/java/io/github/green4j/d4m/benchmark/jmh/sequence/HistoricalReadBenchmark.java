@@ -108,7 +108,8 @@ public class HistoricalReadBenchmark {
                                                     order,
                                                     buffer,
                                                     offset,
-                                                    size) -> {};
+                                                    size) -> {
+        };
 
         private ForwardCursor fwd;
         private BackwardCursor bwd;
@@ -157,11 +158,16 @@ public class HistoricalReadBenchmark {
          */
         int readBatch(final int max) {
             switch (type) {
-                case 0: return fwd.next(max, NO_OP);
-                case 1: return bwd.next(max, NO_OP);
-                case 2: return mfwd.next(max, NO_OP);
-                case 3: return mbwd.next(max, NO_OP);
-                default: return 0;
+                case 0:
+                    return fwd.next(max, NO_OP);
+                case 1:
+                    return bwd.next(max, NO_OP);
+                case 2:
+                    return mfwd.next(max, NO_OP);
+                case 3:
+                    return mbwd.next(max, NO_OP);
+                default:
+                    return 0;
             }
         }
 
@@ -170,11 +176,20 @@ public class HistoricalReadBenchmark {
          */
         void restart() {
             switch (type) {
-                case 0: fwd.seekTo(0); break;
-                case 1: bwd.seekToEnd(); break;
-                case 2: mfwd.seekTo(0); break;
-                case 3: mbwd.seekToEnd(); break;
-                default: break;
+                case 0:
+                    fwd.seekTo(0);
+                    break;
+                case 1:
+                    bwd.seekToEnd();
+                    break;
+                case 2:
+                    mfwd.seekTo(0);
+                    break;
+                case 3:
+                    mbwd.seekToEnd();
+                    break;
+                default:
+                    break;
             }
         }
 

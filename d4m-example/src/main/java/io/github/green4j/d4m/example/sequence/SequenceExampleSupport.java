@@ -83,14 +83,14 @@ final class SequenceExampleSupport extends ExampleSupport {
     }
 
     static void printSequenceStatistics(final Sequence sequence) {
-        final ChunkSnapshot snap = sequence.snapshot();
+        final ChunkSnapshot snapshot = sequence.snapshot();
         long heapEntries = 0;
         long mmapEntries = 0;
         int heapChunks = 0;
         int mmapChunks = 0;
 
-        for (int i = 0; i < snap.size(); i++) {
-            final Chunk chunk = snap.chunk(i);
+        for (int i = 0; i < snapshot.size(); i++) {
+            final Chunk chunk = snapshot.chunk(i);
             final int ec = chunk.getEntryCount();
             if (chunk.buffer().isDirect()) {
                 mmapEntries += ec;
@@ -116,7 +116,7 @@ final class SequenceExampleSupport extends ExampleSupport {
         System.out.printf("%-28s: %13d%n", "Entries on mmap chunks", mmapEntries);
         System.out.printf("%-28s: %12.2f%%%n", "Mmap entry share (approx.)", mmapSharePct);
 
-        final long approxChunkBytes = (long) snap.size() * CHUNK_SIZE;
+        final long approxChunkBytes = (long) snapshot.size() * CHUNK_SIZE;
         System.out.printf(
                 "%-28s: %13s%n",
                 "Approx. chunk storage",

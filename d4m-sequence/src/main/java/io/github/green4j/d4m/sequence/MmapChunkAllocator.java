@@ -92,10 +92,10 @@ public final class MmapChunkAllocator {
      * files from previous runs and optionally pre-allocates the first
      * mapped region.
      *
-     * @param chunkSize             size of each chunk in bytes
+     * @param chunkSize              size of each chunk in bytes
      * @param memoryMappedFileFolder directory to store memory-mapped files
-     * @param preAlloc              if {@code true}, the first region is mapped eagerly
-     * @param epochCounter          shared epoch counter for stamping chunks
+     * @param preAlloc               if {@code true}, the first region is mapped eagerly
+     * @param epochCounter           shared epoch counter for stamping chunks
      * @throws UncheckedIOException if pre-allocation or cleanup fails
      */
     public MmapChunkAllocator(final int chunkSize,

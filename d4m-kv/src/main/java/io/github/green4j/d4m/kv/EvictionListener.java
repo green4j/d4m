@@ -33,13 +33,13 @@ public interface EvictionListener {
     /**
      * Called when a key-value entry is being evicted.
      *
-     * @param notifier the object (tier or segment) that triggered the eviction
-     * @param hash the hash of the evicted key
-     * @param keyValue the buffer containing both key and value data
-     * @param keyOffset the offset of the key within the buffer
-     * @param keySize the size of the key in bytes
+     * @param notifier    the object (tier or segment) that triggered the eviction
+     * @param hash        the hash of the evicted key
+     * @param keyValue    the buffer containing both key and value data
+     * @param keyOffset   the offset of the key within the buffer
+     * @param keySize     the size of the key in bytes
      * @param valueOffset the offset of the value within the buffer
-     * @param valueSize the size of the value in bytes
+     * @param valueSize   the size of the value in bytes
      */
     void onEviction(Object notifier,
                     int hash,

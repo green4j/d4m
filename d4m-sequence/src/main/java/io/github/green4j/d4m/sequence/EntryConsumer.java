@@ -35,11 +35,11 @@ public interface EntryConsumer {
     /**
      * Called for each entry delivered by a cursor.
      *
-     * @param owner the sequence the entry belongs to
-     * @param order order of the entry
+     * @param owner  the sequence the entry belongs to
+     * @param order  order of the entry
      * @param buffer the buffer containing the entry payload
      * @param offset starting offset of the payload within the buffer
-     * @param size size of the payload in bytes
+     * @param size   size of the payload in bytes
      */
     void onEntry(Sequence owner,
                  long order,

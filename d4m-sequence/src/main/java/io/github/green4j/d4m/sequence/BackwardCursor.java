@@ -71,6 +71,7 @@ public final class BackwardCursor {
 
     /**
      * Returns the sequence the cursor is wrapping.
+     *
      * @return the sequence
      */
     public Sequence sequence() {
@@ -173,9 +174,9 @@ public final class BackwardCursor {
                 }
 
                 while (peekEntryIndex >= 0) {
-                    final int entryOffset = (int) (peekTraverseIndex[peekEntryIndex] >>> 32);
-                    final long entryOrder = chunk.entryOrder(entryOffset);
-                    final long entryVersion = chunk.entryVersion(entryOffset);
+                    final int entryOff = (int) (peekTraverseIndex[peekEntryIndex] >>> 32);
+                    final long entryOrder = chunk.entryOrder(entryOff);
+                    final long entryVersion = chunk.entryVersion(entryOff);
                     if (seekActive && entryOrder > seekOrder) {
                         peekEntryIndex--;
                         continue;
@@ -257,10 +258,10 @@ public final class BackwardCursor {
             boolean hitBound = false;
 
             while (currentEntryIndex >= 0 && delivered < maxEntryCount) {
-                final int entryOffset = (int) (traverseIndex[currentEntryIndex] >>> 32);
-                final long entryOrder = chunk.entryOrder(entryOffset);
-                final long entryVersion = chunk.entryVersion(entryOffset);
-                final int entryPayloadLen = chunk.entryPayloadSize(entryOffset);
+                final int entryOff = (int) (traverseIndex[currentEntryIndex] >>> 32);
+                final long entryOrder = chunk.entryOrder(entryOff);
+                final long entryVersion = chunk.entryVersion(entryOff);
+                final int entryPayloadLen = chunk.entryPayloadSize(entryOff);
 
                 if (seekActive && entryOrder > seekOrder) {
                     currentEntryIndex--;
@@ -280,7 +281,7 @@ public final class BackwardCursor {
                         sequence,
                         entryOrder,
                         chunk.buffer(),
-                        entryOffset + Chunk.ENTRY_HEADER_SIZE,
+                        entryOff + Chunk.ENTRY_HEADER_SIZE,
                         entryPayloadLen
                 );
                 lastEntryOrder = entryOrder;
@@ -390,12 +391,12 @@ public final class BackwardCursor {
         entryIndexNeedsResolve = false;
 
         try {
-            for (int chunkIndex = forSnapshot.size() - 1; chunkIndex >= 0; chunkIndex--) {
-                if (!CursorSupport.acquirePin(forSnapshot, chunkIndex, reposPin)) {
+            for (int chunkIdx = forSnapshot.size() - 1; chunkIdx >= 0; chunkIdx--) {
+                if (!CursorSupport.acquirePin(forSnapshot, chunkIdx, reposPin)) {
                     forceRefresh();
                     return;
                 }
-                final Chunk chunk = forSnapshot.chunk(chunkIndex);
+                final Chunk chunk = forSnapshot.chunk(chunkIdx);
                 final int entryCount = chunk.getEntryCount();
                 if (entryCount == 0) {
                     continue;
@@ -407,16 +408,16 @@ public final class BackwardCursor {
 
                 int entryOffset = Chunk.HEADER_SIZE;
                 int last = -1;
-                for (int entryIndex = 0; entryIndex < entryCount; entryIndex++) {
+                for (int entryIdx = 0; entryIdx < entryCount; entryIdx++) {
                     final long entryOrder = chunk.entryOrder(entryOffset);
                     final long entryVersion = chunk.entryVersion(entryOffset);
                     if (before(entryOrder, entryVersion)) {
-                        last = entryIndex;
+                        last = entryIdx;
                     }
                     entryOffset += chunk.entryTotalSize(entryOffset);
                 }
                 if (last >= 0) {
-                    currentChunkIndex = chunkIndex;
+                    currentChunkIndex = chunkIdx;
                     currentEntryIndex = last;
                     CursorSupport.transferPin(reposPin, pinState);
                     return;
@@ -434,11 +435,11 @@ public final class BackwardCursor {
         if (entryCount > traverseIndex.length) {
             traverseIndex = new long[entryCount + (entryCount >> 1)];
         }
-        int entryOffset = Chunk.HEADER_SIZE;
-        for (int entryIndex = 0; entryIndex < entryCount; entryIndex++) {
-            final int entryTotalSize = chunk.entryTotalSize(entryOffset);
-            traverseIndex[entryIndex] = ((long) entryOffset << 32) | (entryTotalSize & 0xFFFF_FFFFL);
-            entryOffset += entryTotalSize;
+        int entryOff = Chunk.HEADER_SIZE;
+        for (int entryIdx = 0; entryIdx < entryCount; entryIdx++) {
+            final int entryTotalSize = chunk.entryTotalSize(entryOff);
+            traverseIndex[entryIdx] = ((long) entryOff << 32) | (entryTotalSize & 0xFFFF_FFFFL);
+            entryOff += entryTotalSize;
         }
         traverseIndexChunk = chunk;
         traverseIndexSize = entryCount;
@@ -452,9 +453,9 @@ public final class BackwardCursor {
             scratch = new long[entryCount + (entryCount >> 1)];
         }
         int entryOffset = Chunk.HEADER_SIZE;
-        for (int entryIndex = 0; entryIndex < entryCount; entryIndex++) {
+        for (int entryIdx = 0; entryIdx < entryCount; entryIdx++) {
             final int entryTotalSize = chunk.entryTotalSize(entryOffset);
-            scratch[entryIndex] = ((long) entryOffset << 32) | (entryTotalSize & 0xFFFF_FFFFL);
+            scratch[entryIdx] = ((long) entryOffset << 32) | (entryTotalSize & 0xFFFF_FFFFL);
             entryOffset += entryTotalSize;
         }
         return scratch;

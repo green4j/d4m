@@ -31,8 +31,8 @@ public interface TierFactory {
     /**
      * Creates the next tier, given the current tier array and its size.
      *
-     * @param currentTiers the array of existing tiers
-     * @param currentSize the number of tiers currently in use
+     * @param currentTiers     the array of existing tiers
+     * @param currentSize      the number of tiers currently in use
      * @param evictionListener listener to be notified when entries are evicted from the new tier
      * @return a new {@link Tier}, or {@code null} if no more tiers should be created
      * @throws Exception if tier creation fails

@@ -47,9 +47,9 @@ public class KeyValueBuffer implements
         /**
          * Called after a new key-value entry has been inserted into the buffer.
          *
-         * @param index the buffer index of the inserted entry
+         * @param index     the buffer index of the inserted entry
          * @param slotIndex the metadata slot index assigned to the entry
-         * @param keySize the size of the key in bytes
+         * @param keySize   the size of the key in bytes
          * @param valueSize the size of the value in bytes
          */
         void onAfterInserted(int index,
@@ -60,9 +60,9 @@ public class KeyValueBuffer implements
         /**
          * Called after an existing key-value entry's value has been updated.
          *
-         * @param index the buffer index of the updated entry
+         * @param index     the buffer index of the updated entry
          * @param slotIndex the metadata slot index of the entry
-         * @param keySize the size of the key in bytes
+         * @param keySize   the size of the key in bytes
          * @param valueSize the size of the value in bytes
          */
         void onAfterUpdated(int index,
@@ -73,9 +73,9 @@ public class KeyValueBuffer implements
         /**
          * Called before the oldest key-value entry is evicted to make room for new data.
          *
-         * @param index the buffer index of the entry being evicted
+         * @param index     the buffer index of the entry being evicted
          * @param slotIndex the metadata slot index of the entry being evicted
-         * @param keySize the size of the key in bytes
+         * @param keySize   the size of the key in bytes
          * @param valueSize the size of the value in bytes
          */
         void onBeforeEvicted(int index,
@@ -116,7 +116,7 @@ public class KeyValueBuffer implements
     /**
      * Creates a buffer backed by the given {@link AtomicBuffer} with an optional listener.
      *
-     * @param buffer the backing buffer whose capacity must be a power of two and greater than the header size
+     * @param buffer   the backing buffer whose capacity must be a power of two and greater than the header size
      * @param listener optional listener for insert/update/eviction events, or {@code null}
      */
     public KeyValueBuffer(final AtomicBuffer buffer,
@@ -252,15 +252,15 @@ public class KeyValueBuffer implements
      * the oldest entries if necessary to make room.
      *
      * @param slotIndex the metadata slot index to assign to the new entry
-     * @param keySize the size of the key in bytes
+     * @param keySize   the size of the key in bytes
      * @param valueSize the size of the value in bytes
      * @return the writable {@link KeyValueConsuming.IndexedKeyValue}, or {@code null} if the
-     *         total entry size exceeds the buffer capacity
+     * total entry size exceeds the buffer capacity
      */
     @Override
     public KeyValueConsuming.IndexedKeyValue putKeyValue(final int slotIndex,
-                                                            final int keySize,
-                                                            final int valueSize) {
+                                                         final int keySize,
+                                                         final int valueSize) {
         keyValueWriter.checkNotInUse();
 
         final int totalRequiredAligned = alignToLong(HEADER_SIZE + keySize + valueSize);
@@ -337,7 +337,7 @@ public class KeyValueBuffer implements
     /**
      * Updates the metadata slot index in the entry header at the given buffer index.
      *
-     * @param index the entry index
+     * @param index     the entry index
      * @param slotIndex the new slot index to store
      */
     public void updateSlotIndex(final int index,
@@ -370,10 +370,10 @@ public class KeyValueBuffer implements
      * to {@link IndexOutOfBoundsException}. Callers must track valid indices via
      * {@link Listener} callbacks.
      *
-     * @param index the buffer index of the entry to read
+     * @param index    the buffer index of the entry to read
      * @param consumer the consumer that receives the key-value data
-     * @param <K> the concrete {@link KeyValueConsuming.KeyValue} type
-     * @param <C> the concrete {@link KeyValueConsuming.KeyValueConsumer} type
+     * @param <K>      the concrete {@link KeyValueConsuming.KeyValue} type
+     * @param <C>      the concrete {@link KeyValueConsuming.KeyValueConsumer} type
      */
     public <K extends KeyValueConsuming.KeyValue, C extends KeyValueConsuming.KeyValueConsumer<K>> void read(
             final int index,
@@ -411,10 +411,10 @@ public class KeyValueBuffer implements
      * to {@link IndexOutOfBoundsException}. Callers must track valid indices via
      * {@link Listener} callbacks.
      *
-     * @param index the buffer index of the entry whose value to read
+     * @param index    the buffer index of the entry whose value to read
      * @param consumer the consumer that receives the value data
-     * @param <V> the concrete {@link KeyValueConsuming.Value} type
-     * @param <C> the concrete {@link KeyValueConsuming.ValueConsumer} type
+     * @param <V>      the concrete {@link KeyValueConsuming.Value} type
+     * @param <C>      the concrete {@link KeyValueConsuming.ValueConsumer} type
      */
     public <V extends KeyValueConsuming.Value, C extends KeyValueConsuming.ValueConsumer<V>> void readValue(
             final int index,
@@ -460,10 +460,10 @@ public class KeyValueBuffer implements
     /**
      * Compares the key stored at the given buffer index with the provided key data.
      *
-     * @param index the entry index
-     * @param key the buffer containing the key to compare against
+     * @param index  the entry index
+     * @param key    the buffer containing the key to compare against
      * @param offset the offset of the key within the buffer
-     * @param size the size of the key in bytes
+     * @param size   the size of the key in bytes
      * @return {@code true} if the stored key equals the provided key
      */
     public boolean keyEquals(final int index,
@@ -578,7 +578,7 @@ public class KeyValueBuffer implements
     }
 
     private void writeNextEntryIndex(final int index,
-                                        final int nextEntryIndex) {
+                                     final int nextEntryIndex) {
         final long firstLong = buffer.getLong(index);
         final long newFirstLong = (firstLong & MASK_32_BITS) | (((long) nextEntryIndex) << INT_BITS);
         buffer.putLong(index, newFirstLong);

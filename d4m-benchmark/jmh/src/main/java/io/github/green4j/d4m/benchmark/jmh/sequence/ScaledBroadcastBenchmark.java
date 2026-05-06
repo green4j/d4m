@@ -132,7 +132,8 @@ public class ScaledBroadcastBenchmark {
                                                     order,
                                                     buffer,
                                                     offset,
-                                                    size) -> {};
+                                                    size) -> {
+        };
 
         private ForwardCursor[] fwdCursors;
         private MergedForwardCursor[] mfwdCursors;
@@ -230,7 +231,7 @@ public class ScaledBroadcastBenchmark {
     /**
      * Reader side of the one-reader group: reads from the next cursor in round-robin order.
      *
-     * @param rs the thread-local reader state managing {@value CURSOR_COUNT} cursors
+     * @param rs       the thread-local reader state managing {@value CURSOR_COUNT} cursors
      * @param counters auxiliary counters tracking entries consumed
      */
     @Benchmark
@@ -256,7 +257,7 @@ public class ScaledBroadcastBenchmark {
     /**
      * Reader side of the two-readers group: each thread reads from its own set of cursors.
      *
-     * @param rs the thread-local reader state managing {@value CURSOR_COUNT} cursors
+     * @param rs       the thread-local reader state managing {@value CURSOR_COUNT} cursors
      * @param counters auxiliary counters tracking entries consumed
      */
     @Benchmark

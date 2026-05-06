@@ -28,8 +28,8 @@ import io.github.green4j.d4m.common.UnsafeBuffer;
 import io.github.green4j.d4m.kv.ByteArrayValueConsumer;
 import io.github.green4j.d4m.kv.KeyValueRing;
 import io.github.green4j.d4m.kv.KeyValueSegment;
-import io.github.green4j.d4m.kv.Tier;
 import io.github.green4j.d4m.kv.KeyValueStorage;
+import io.github.green4j.d4m.kv.Tier;
 
 import static io.github.green4j.d4m.common.BitSupport.SIZE_OF_LONG;
 import static io.github.green4j.d4m.example.ExampleSupport.BR;
@@ -154,10 +154,10 @@ public class TieredKeyValueStorageUsage {
             System.out.println('[' + KEY_PREFIX + i
                     + "] = ["
                     + new String(
-                            valueConsumer.array(),
-                            0,
-                            valueConsumer.valueSize()
-                    )
+                    valueConsumer.array(),
+                    0,
+                    valueConsumer.valueSize()
+            )
                     + ']');
         }
     }

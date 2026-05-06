@@ -23,6 +23,7 @@
  */
 package io.github.green4j.d4m.sequence;
 
+import io.github.green4j.d4m.common.AtomicBuffer;
 import io.github.green4j.d4m.common.BitSupport;
 
 /**
@@ -81,14 +82,14 @@ public class Chunk {
         return BitSupport.alignToLong(ENTRY_HEADER_SIZE + payloadLen);
     }
 
-    protected final io.github.green4j.d4m.common.AtomicBuffer buffer;
+    protected final AtomicBuffer buffer;
 
     /**
      * Creates a chunk backed by the given buffer.
      *
      * @param buffer the atomic buffer holding chunk data
      */
-    public Chunk(final io.github.green4j.d4m.common.AtomicBuffer buffer) {
+    public Chunk(final AtomicBuffer buffer) {
         this.buffer = buffer;
     }
 
@@ -97,7 +98,7 @@ public class Chunk {
      *
      * @return the buffer backing this chunk
      */
-    public io.github.green4j.d4m.common.AtomicBuffer buffer() {
+    public AtomicBuffer buffer() {
         return buffer;
     }
 
@@ -134,7 +135,7 @@ public class Chunk {
      * Reads the eviction state with volatile semantics.
      *
      * @return current eviction state ({@link #EVICTION_NONE},
-     *         {@link #EVICTION_CANDIDATE}, or {@link #EVICTION_IN_PROGRESS})
+     * {@link #EVICTION_CANDIDATE}, or {@link #EVICTION_IN_PROGRESS})
      */
     public int getEvictionState() {
         return buffer.getIntVolatile(EVICTION_STATE_OFFSET);
@@ -353,7 +354,7 @@ public class Chunk {
     public void writeEntry(final int offset,
                            final long order,
                            final long version,
-                           final io.github.green4j.d4m.common.AtomicBuffer payload,
+                           final AtomicBuffer payload,
                            final int payloadOffset,
                            final int payloadSize) {
         buffer.putLong(offset + ENTRY_ORDER_OFFSET, order);

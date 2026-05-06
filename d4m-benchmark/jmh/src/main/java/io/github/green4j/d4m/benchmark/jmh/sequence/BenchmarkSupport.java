@@ -82,8 +82,8 @@ public final class BenchmarkSupport {
     /**
      * Creates an array of {@link Sequence} instances backed by heap and mmap allocators.
      *
-     * @param count the number of sequences to create
-     * @param chunkSize the chunk size in bytes for each sequence
+     * @param count        the number of sequences to create
+     * @param chunkSize    the chunk size in bytes for each sequence
      * @param maxHeapBytes the maximum number of bytes available for heap allocation
      * @return an array of newly created sequences
      */
@@ -106,7 +106,7 @@ public final class BenchmarkSupport {
      * Returns a default maximum heap budget based on series count and chunk size.
      *
      * @param seriesCount the number of time series
-     * @param chunkSize the chunk size in bytes
+     * @param chunkSize   the chunk size in bytes
      * @return the maximum heap budget in bytes
      */
     static long defaultMaxHeap(final int seriesCount, final int chunkSize) {
@@ -133,12 +133,12 @@ public final class BenchmarkSupport {
     /**
      * Writes a single entry to the given sequence using the specified {@link WriteProfile}.
      *
-     * @param seq the target sequence
+     * @param seq           the target sequence
      * @param orderCounters per-series order counters, updated on append
-     * @param seriesIndex the index into {@code orderCounters} for the current series
-     * @param opCount the cumulative operation count, used to select append vs insert/update
-     * @param profile the write profile controlling the operation mix
-     * @param payload the payload buffer to write
+     * @param seriesIndex   the index into {@code orderCounters} for the current series
+     * @param opCount       the cumulative operation count, used to select append vs insert/update
+     * @param profile       the write profile controlling the operation mix
+     * @param payload       the payload buffer to write
      */
     static void writeEntry(final Sequence seq,
                            final long[] orderCounters,
@@ -163,9 +163,9 @@ public final class BenchmarkSupport {
     /**
      * Pre-populates all sequences with the given number of entries per series.
      *
-     * @param sequences the sequences to populate
+     * @param sequences        the sequences to populate
      * @param entriesPerSeries the number of entries to write into each sequence
-     * @param profile the write profile controlling the operation mix
+     * @param profile          the write profile controlling the operation mix
      */
     static void populateSequences(final Sequence[] sequences,
                                   final int entriesPerSeries,

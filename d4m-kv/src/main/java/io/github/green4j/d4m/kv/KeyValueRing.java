@@ -40,7 +40,7 @@ public class KeyValueRing implements KeyValues {
     /**
      * Creates a ring with the specified number of segments and a default shuffle multiplier of 16.
      *
-     * @param size the desired number of distinct segments (rounded up to power of two)
+     * @param size    the desired number of distinct segments (rounded up to power of two)
      * @param factory the factory used to create each segment
      */
     public KeyValueRing(final int size,
@@ -57,9 +57,9 @@ public class KeyValueRing implements KeyValues {
      * The shuffle multiplier controls the internal array size to distribute hash
      * collisions across segments more evenly.
      *
-     * @param size the desired number of distinct segments (rounded up to power of two)
+     * @param size              the desired number of distinct segments (rounded up to power of two)
      * @param shuffleMultiplier the multiplier for the internal segment array (rounded up to power of two)
-     * @param factory the factory used to create each segment
+     * @param factory           the factory used to create each segment
      */
     public KeyValueRing(final int size,
                         final int shuffleMultiplier,

@@ -23,6 +23,9 @@
  */
 package io.github.green4j.d4m.sequence;
 
+import io.github.green4j.d4m.common.AtomicBuffer;
+import io.github.green4j.d4m.common.UnsafeBuffer;
+
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -86,8 +89,7 @@ public final class HeapChunkAllocator {
             for (int i = 0; i < perSlab; i++) {
                 final int off = i * chunkSize;
                 slab.position(off).limit(off + chunkSize);
-                final io.github.green4j.d4m.common.AtomicBuffer buf =
-                        new io.github.green4j.d4m.common.UnsafeBuffer(slab.slice());
+                final AtomicBuffer buf = new UnsafeBuffer(slab.slice());
                 push(freeStack, new Chunk(buf), 0);
                 slab.clear();
             }

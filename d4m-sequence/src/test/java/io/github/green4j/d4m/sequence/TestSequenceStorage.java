@@ -47,10 +47,10 @@ public final class TestSequenceStorage {
      * @param preAlloc  whether to pre-allocate mmap chunks
      */
     public TestSequenceStorage(final int chunkSize,
-                           final long maxHeap,
-                           final int slabSize,
-                           final File mmapDir,
-                           final boolean preAlloc) {
+                               final long maxHeap,
+                               final int slabSize,
+                               final File mmapDir,
+                               final boolean preAlloc) {
         this.chunkSize = chunkSize;
 
         final AtomicLong epoch = new AtomicLong();

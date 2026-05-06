@@ -37,11 +37,17 @@ public final class EvictionQueue {
      * together with a reference to the owning sequence.
      */
     public static final class Item {
-        /** The sequence that owns the chunk. */
+        /**
+         * The sequence that owns the chunk.
+         */
         public final Sequence owner;
-        /** The heap-backed chunk to be evicted. */
+        /**
+         * The heap-backed chunk to be evicted.
+         */
         public final Chunk heapChunk;
-        /** The chunk epoch captured at enqueue time for staleness detection. */
+        /**
+         * The chunk epoch captured at enqueue time for staleness detection.
+         */
         public final long epoch;
 
         /**

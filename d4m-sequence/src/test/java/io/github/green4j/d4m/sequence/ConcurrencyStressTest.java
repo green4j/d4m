@@ -128,8 +128,8 @@ class ConcurrencyStressTest {
      * Backward cursor that repeatedly seeks to end and drains entries while {@code run} is true.
      *
      * @param sequence sequence to read
-     * @param run stop flag
-     * @param go start latch
+     * @param run      stop flag
+     * @param go       start latch
      * @return reader task
      */
     private Callable<Void> backwardStreamingReader(final Sequence sequence,
@@ -160,10 +160,10 @@ class ConcurrencyStressTest {
     /**
      * Reads the full sequence forward and asserts distinct entry cardinality.
      *
-     * @param sequence sequence to scan
+     * @param sequence      sequence to scan
      * @param expectedCount expected distinct entries
      * @param detailMessage assertion detail on mismatch
-     * @param printfLine format string for success log (one {@code %d})
+     * @param printfLine    format string for success log (one {@code %d})
      */
     private void verifyCardinalityFromForwardCursor(final Sequence sequence,
                                                     final int expectedCount,
@@ -216,9 +216,9 @@ class ConcurrencyStressTest {
      * written count in {@code written}.
      *
      * @param sequence sequence to append to
-     * @param run when false, writer stops
-     * @param written receives final written count
-     * @param go latch released before appending begins
+     * @param run      when false, writer stops
+     * @param written  receives final written count
+     * @param go       latch released before appending begins
      * @return a callable that performs the writer loop
      */
     private Callable<Void> appendWriter(final Sequence sequence,
@@ -249,9 +249,9 @@ class ConcurrencyStressTest {
      * Returns a {@link Callable} that reads forward, verifying
      * checksum integrity and order ordering.
      *
-     * @param sequence sequence to read
-     * @param run when false, reader stops
-     * @param go latch released before reading begins
+     * @param sequence      sequence to read
+     * @param run           when false, reader stops
+     * @param go            latch released before reading begins
      * @param checkSeqOrder whether to assert monotonic payload sequence
      * @return a callable that performs the reader loop
      */
@@ -1432,5 +1432,293 @@ class ConcurrencyStressTest {
 
         assertTrue(ops.get() > 500);
         System.out.printf("  [eviction+cow] ops=%,d%n", ops.get());
+    }
+
+    @Test
+    void insertBatchWithConcurrentReaders() throws Exception {
+        final TestSequenceStorage storage = store(32L * CHUNK);
+        final Sequence sequence = storage.getOrCreate("sequence");
+        final AtomicBoolean run = new AtomicBoolean(true);
+        final AtomicLong written = new AtomicLong();
+        final CountDownLatch go = new CountDownLatch(1);
+        final ExecutorService ex = Executors.newCachedThreadPool();
+        final List<Future<?>> fs = new ArrayList<>();
+
+        // Writer: appends with gaps (order += 10), periodically insertBatch
+        // fills gaps with batches of entries
+        fs.add(ex.submit(() -> {
+            go.await();
+            final UnsafeBuffer pb = new UnsafeBuffer(new byte[PAYLOAD_SIZE]);
+            final int batchSize = 4;
+            final long[] batchOrders = new long[batchSize];
+            final int[] batchOffsets = new int[batchSize];
+            final int[] batchSizes = new int[batchSize];
+            final UnsafeBuffer batchPl = new UnsafeBuffer(new byte[batchSize * PAYLOAD_SIZE]);
+            for (int i = 0; i < batchSize; i++) {
+                batchOffsets[i] = i * PAYLOAD_SIZE;
+                batchSizes[i] = PAYLOAD_SIZE;
+            }
+
+            long seq = 0;
+            long appendOrder = 0;
+            while (run.get()) {
+                encodePayload(pb, seq, appendOrder);
+                sequence.append(appendOrder, pb, 0, PAYLOAD_SIZE);
+                seq++;
+
+                if (seq % 40 == 0 && appendOrder >= 50) {
+                    final long base = appendOrder - 30;
+                    for (int i = 0; i < batchSize; i++) {
+                        batchOrders[i] = base + i * 2 + 1; // odd orders in gaps
+                        encodePayload(batchPl, batchOffsets[i], seq + i, batchOrders[i]);
+                    }
+                    sequence.insertBatch(batchOrders, batchPl, batchOffsets, batchSizes, batchSize);
+                    seq += batchSize;
+                }
+                appendOrder += 10;
+            }
+            written.set(seq);
+            return null;
+        }));
+
+        for (int r = 0; r < READERS; r++) {
+            fs.add(ex.submit(forwardReader(sequence, run, go, false)));
+        }
+        for (int r = 0; r < 2; r++) {
+            fs.add(ex.submit(backwardStreamingReader(sequence, run, go)));
+        }
+
+        go.countDown();
+        Thread.sleep(DURATION_MS);
+        run.set(false);
+        join(fs);
+        ex.shutdown();
+
+        assertTrue(written.get() > 500);
+        System.out.printf("  [insertBatch] wrote %,d msgs%n", written.get());
+    }
+
+    @Test
+    void mixedAppendAndInsertBatchWriter() throws Exception {
+        final TestSequenceStorage storage = store(16L * CHUNK);
+        final Sequence sequence = storage.getOrCreate("sequence");
+        final AtomicBoolean run = new AtomicBoolean(true);
+        final AtomicLong written = new AtomicLong();
+        final CountDownLatch go = new CountDownLatch(1);
+        final ExecutorService ex = Executors.newCachedThreadPool();
+        final List<Future<?>> fs = new ArrayList<>();
+
+        final int batchCount = 16;
+
+        // Writer alternates between appendBatch and insertBatch
+        fs.add(ex.submit(() -> {
+            go.await();
+            long seq = 0;
+            final long[] orders = new long[batchCount];
+            final int[] offsets = new int[batchCount];
+            final int[] sizes = new int[batchCount];
+            final UnsafeBuffer pl = new UnsafeBuffer(new byte[batchCount * PAYLOAD_SIZE]);
+            for (int i = 0; i < batchCount; i++) {
+                offsets[i] = i * PAYLOAD_SIZE;
+                sizes[i] = PAYLOAD_SIZE;
+            }
+
+            long appendOrder = 0;
+            while (run.get()) {
+                // appendBatch: monotonic tail
+                for (int i = 0; i < batchCount; i++) {
+                    orders[i] = appendOrder + i * 10;
+                    encodePayload(pl, offsets[i], seq + i, orders[i]);
+                }
+                final int appended = sequence.appendBatch(orders, pl, offsets, sizes, batchCount);
+                seq += appended;
+                appendOrder += batchCount * 10;
+
+                // insertBatch: fill gaps in older data
+                if (seq > batchCount * 3 && appendOrder >= 100) {
+                    final long base = appendOrder - 80;
+                    for (int i = 0; i < batchCount; i++) {
+                        orders[i] = base + i * 3 + 1;
+                        encodePayload(pl, offsets[i], seq + i, orders[i]);
+                    }
+                    final int inserted = sequence.insertBatch(orders, pl, offsets, sizes, batchCount);
+                    seq += inserted;
+                }
+            }
+            written.set(seq);
+            return null;
+        }));
+
+        for (int r = 0; r < READERS; r++) {
+            fs.add(ex.submit(forwardReader(sequence, run, go, false)));
+        }
+
+        go.countDown();
+        Thread.sleep(DURATION_MS);
+        run.set(false);
+        join(fs);
+        ex.shutdown();
+
+        assertTrue(written.get() > 100);
+        System.out.printf("  [mixedBatch] wrote %,d msgs%n", written.get());
+    }
+
+    @Test
+    void insertBatchUnderHeavyEviction() throws Exception {
+        // Small heap -> frequent eviction
+        final TestSequenceStorage storage = store(6L * CHUNK);
+        final Sequence sequence = storage.getOrCreate("sequence");
+        final AtomicBoolean run = new AtomicBoolean(true);
+        final AtomicLong written = new AtomicLong();
+        final CountDownLatch go = new CountDownLatch(1);
+        final ExecutorService ex = Executors.newCachedThreadPool();
+        final List<Future<?>> fs = new ArrayList<>();
+
+        fs.add(ex.submit(() -> {
+            go.await();
+            final UnsafeBuffer pb = new UnsafeBuffer(new byte[PAYLOAD_SIZE]);
+            final int batchSize = 3;
+            final long[] batchOrders = new long[batchSize];
+            final int[] batchOffsets = new int[batchSize];
+            final int[] batchSizes = new int[batchSize];
+            final UnsafeBuffer batchPl = new UnsafeBuffer(new byte[batchSize * PAYLOAD_SIZE]);
+            for (int i = 0; i < batchSize; i++) {
+                batchOffsets[i] = i * PAYLOAD_SIZE;
+                batchSizes[i] = PAYLOAD_SIZE;
+            }
+
+            long seq = 0;
+            long appendOrder = 0;
+            while (run.get()) {
+                encodePayload(pb, seq, appendOrder);
+                sequence.append(appendOrder, pb, 0, PAYLOAD_SIZE);
+                seq++;
+
+                if (seq % 50 == 0 && appendOrder >= 40) {
+                    final long base = appendOrder - 20;
+                    for (int i = 0; i < batchSize; i++) {
+                        batchOrders[i] = base + i * 3 + 1;
+                        encodePayload(batchPl, batchOffsets[i], seq + i, batchOrders[i]);
+                    }
+                    sequence.insertBatch(batchOrders, batchPl, batchOffsets, batchSizes, batchSize);
+                    seq += batchSize;
+                }
+                appendOrder += 2;
+            }
+            written.set(seq);
+            return null;
+        }));
+
+        for (int r = 0; r < READERS; r++) {
+            fs.add(ex.submit(forwardReader(sequence, run, go, false)));
+        }
+        for (int r = 0; r < 2; r++) {
+            fs.add(ex.submit(backwardStreamingReader(sequence, run, go)));
+        }
+
+        go.countDown();
+        Thread.sleep(DURATION_MS);
+        run.set(false);
+        join(fs);
+        ex.shutdown();
+
+        assertTrue(written.get() > 500);
+        System.out.printf("  [insertBatch+eviction] wrote %,d msgs%n", written.get());
+    }
+
+    @Test
+    void highVolumeInsertBatch() throws Exception {
+        final TestSequenceStorage storage = store(32L * CHUNK);
+        final Sequence sequence = storage.getOrCreate("sequence");
+        final AtomicBoolean run = new AtomicBoolean(true);
+        final AtomicLong totalOps = new AtomicLong();
+        final CountDownLatch go = new CountDownLatch(1);
+        final ExecutorService ex = Executors.newCachedThreadPool();
+        final List<Future<?>> fs = new ArrayList<>();
+
+        final int batchSize = 64;
+
+        fs.add(ex.submit(() -> {
+            go.await();
+            final long[] orders = new long[batchSize];
+            final int[] offsets = new int[batchSize];
+            final int[] sizes = new int[batchSize];
+            final UnsafeBuffer pl = new UnsafeBuffer(new byte[batchSize * PAYLOAD_SIZE]);
+            for (int i = 0; i < batchSize; i++) {
+                offsets[i] = i * PAYLOAD_SIZE;
+                sizes[i] = PAYLOAD_SIZE;
+            }
+
+            long seq = 0;
+            long appendOrder = 0;
+
+            // Phase 1: build up some data with appends
+            final UnsafeBuffer pb = new UnsafeBuffer(new byte[PAYLOAD_SIZE]);
+            for (int i = 0; i < 200; i++) {
+                encodePayload(pb, seq, appendOrder);
+                sequence.append(appendOrder, pb, 0, PAYLOAD_SIZE);
+                seq++;
+                appendOrder += 10;
+            }
+
+            // Phase 2: sustained insertBatch into various positions
+            while (run.get()) {
+                // Append some to grow the tail
+                for (int i = 0; i < 10; i++) {
+                    encodePayload(pb, seq, appendOrder);
+                    sequence.append(appendOrder, pb, 0, PAYLOAD_SIZE);
+                    seq++;
+                    appendOrder += 10;
+                }
+
+                // Large batch insert into older region
+                final long base = Math.max(0, appendOrder - 500);
+                for (int i = 0; i < batchSize; i++) {
+                    orders[i] = base + i * 5 + 1;
+                    encodePayload(pl, offsets[i], seq + i, orders[i]);
+                }
+                sequence.insertBatch(orders, pl, offsets, sizes, batchSize);
+                seq += batchSize;
+            }
+            totalOps.set(seq);
+            return null;
+        }));
+
+        for (int r = 0; r < READERS; r++) {
+            fs.add(ex.submit(forwardReader(sequence, run, go, false)));
+        }
+
+        go.countDown();
+        Thread.sleep(DURATION_MS);
+        run.set(false);
+        join(fs);
+        ex.shutdown();
+
+        assertTrue(totalOps.get() > 500);
+        System.out.printf("  [highVolInsertBatch] ops=%,d%n", totalOps.get());
+
+        // Post-run: verify all entries are ordered
+        final ForwardCursor ver = new ForwardCursor(sequence);
+        final long[] prev = {Long.MIN_VALUE};
+        final long[] count = {0};
+        while (true) {
+            final long[] batch = {0};
+            ver.next(1024, (owner, entryOrder, buf, off, size) -> {
+                checkPayload(buf, off, size);
+                if (entryOrder < prev[0]) {
+                    throw new AssertionError("Post-run order violation: "
+                            + prev[0] + " -> " + entryOrder);
+                }
+                prev[0] = entryOrder;
+                count[0]++;
+                batch[0]++;
+            });
+            if (batch[0] == 0) {
+                break;
+            }
+        }
+        ver.close();
+        assertTrue(count[0] > 500, "expected entries; got " + count[0]);
+        System.out.printf("  [highVolInsertBatch] verified %,d entries%n", count[0]);
     }
 }
