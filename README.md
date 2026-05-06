@@ -1,6 +1,6 @@
 # d4m
 
-High-performance, in-memory data collections for Java with cooperative eviction to external storage (SSD/NVMe, memory-mapped files).
+In-memory data collections, typically with eviction to external memory such as SSD/NVMe, or similar storage.
 
 ## Overview
 
