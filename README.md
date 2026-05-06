@@ -11,8 +11,8 @@ d4m provides low-latency data structures designed for single-writer/multi-reader
 | Module | Description |
 |--------|-------------|
 | `d4m-common` | Shared primitives: `AtomicBuffer`, `UnsafeBuffer`, bit/byte utilities |
-| `d4m-sequence` | Ordered append-optimised sequence with COW inserts and cursor-based iteration |
-| `d4m-kv` | Tiered key-value store with hash-sharded segments and cascading eviction |
+| [`d4m-sequence`](d4m-sequence/README.md) | Ordered append-optimised sequence with COW inserts and cursor-based iteration |
+| [`d4m-kv`](d4m-kv/README.md) | Tiered key-value store with hash-sharded segments and cascading eviction |
 | `d4m-benchmark` | JMH benchmarks |
 | `d4m-example` | Usage examples for both modules |
 
