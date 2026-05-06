@@ -798,7 +798,7 @@ class ConcurrencyStressTest {
             } finally {
                 cur.close();
             }
-            System.out.printf("    tailing reader saw %,d / %,d%n", state[1], written.get());
+            System.out.printf("    tailing reader saw %,d/%,d%n", state[1], written.get());
             return null;
         }));
 
@@ -983,7 +983,7 @@ class ConcurrencyStressTest {
                 rounds++;
                 assertTrue(
                         rounds < 500,
-                        "appendBatch stuck — no progress at written=" + written);
+                        "appendBatch stuck - no progress at written=" + written);
             } else {
                 rounds = 0;
             }
@@ -1357,7 +1357,7 @@ class ConcurrencyStressTest {
 
         // The correctness invariant: every probe that targeted a published
         // Entry must have found it (zero violations).
-        assertEquals(0, viol, "snapshot visibility violations — published entry not readable");
+        assertEquals(0, viol, "snapshot visibility violations - published entry not readable");
 
         // Sanity: the reader actually ran and made progress.
         assertTrue(prb > 50, "reader completed too few probes: " + prb);

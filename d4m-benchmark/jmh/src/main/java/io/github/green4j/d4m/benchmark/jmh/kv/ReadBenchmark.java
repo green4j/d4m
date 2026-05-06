@@ -47,8 +47,8 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Two eviction profiles:
  * <ul>
- *   <li>{@code noEviction} — all pre-populated data resides in the hot tier.</li>
- *   <li>{@code evict30} — the hot tier is sized so that approximately 30%
+ *   <li>{@code noEviction} - all pre-populated data resides in the hot tier.</li>
+ *   <li>{@code evict30} - the hot tier is sized so that approximately 30%
  *       of the pre-populated data spills to mmap tiers. Reads hit both
  *       hot and mmap storage.</li>
  * </ul>

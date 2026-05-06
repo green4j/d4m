@@ -51,8 +51,8 @@ import java.util.concurrent.TimeUnit;
  * Measures realtime broadcast throughput with 100 cursors per reader thread.
  * Two group variants:
  * <ul>
- *   <li>{@code oneReader} — 1 writer thread + 1 reader thread (100 cursors)</li>
- *   <li>{@code twoReaders} — 1 writer thread + 2 reader threads (100 cursors each)</li>
+ *   <li>{@code oneReader} - 1 writer thread + 1 reader thread (100 cursors)</li>
+ *   <li>{@code twoReaders} - 1 writer thread + 2 reader threads (100 cursors each)</li>
  * </ul>
  *
  * <p>Each reader round-robins across its cursors, calling

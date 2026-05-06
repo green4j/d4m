@@ -46,9 +46,9 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Two eviction profiles:
  * <ul>
- *   <li>{@code noEviction} — large hot tier; keys cycle within a pre-populated
+ *   <li>{@code noEviction} - large hot tier; keys cycle within a pre-populated
  *       range so no eviction ever occurs (measures pure in-memory write speed).</li>
- *   <li>{@code evict30} — small hot tier; unique keys are written continuously,
+ *   <li>{@code evict30} - small hot tier; unique keys are written continuously,
  *       causing constant eviction to mmap tiers.</li>
  * </ul>
  *

@@ -28,7 +28,7 @@ package io.github.green4j.d4m.sequence;
  * forward-ordered stream using a min-heap. At each step, the entry
  * with the smallest order among all sources is delivered first.
  *
- * <p>Not thread-safe — intended for single-reader use.</p>
+ * <p>Not thread-safe - intended for single-reader use.</p>
  */
 public final class MergedForwardCursor {
     private static final long EXHAUSTED = Long.MAX_VALUE;

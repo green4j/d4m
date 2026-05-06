@@ -28,7 +28,7 @@ package io.github.green4j.d4m.sequence;
  * reverse-ordered stream using a max-heap. At each step, the entry
  * with the largest order among all sources is delivered first.
  *
- * <p>Not thread-safe — intended for single-reader use.</p>
+ * <p>Not thread-safe - intended for single-reader use.</p>
  */
 public final class MergedBackwardCursor {
     private static final long EXHAUSTED = Long.MIN_VALUE;

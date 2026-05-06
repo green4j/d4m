@@ -45,7 +45,7 @@ import java.util.concurrent.locks.ReentrantLock;
 /**
  * Allocates chunks from memory-mapped files.
  *
- * <p>Mapped regions are never unmapped — the OS reclaims pages via
+ * <p>Mapped regions are never unmapped - the OS reclaims pages via
  * its virtual-memory lifecycle.  Files and mappings grow monotonically;
  * this is intentional so that readers holding pinned chunks never risk
  * accessing unmapped memory.</p>

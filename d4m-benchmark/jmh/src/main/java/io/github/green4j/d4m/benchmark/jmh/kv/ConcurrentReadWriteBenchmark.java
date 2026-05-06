@@ -50,16 +50,16 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p>Two eviction profiles:
  * <ul>
- *   <li>{@code noEviction} — large hot tier; the writer cycles keys within
+ *   <li>{@code noEviction} - large hot tier; the writer cycles keys within
  *       a pre-populated range so no eviction occurs.</li>
- *   <li>{@code evict30} — small hot tier; the writer inserts unique keys
+ *   <li>{@code evict30} - small hot tier; the writer inserts unique keys
  *       continuously, causing constant eviction to mmap tiers.</li>
  * </ul>
  *
  * <p>Two benchmark groups:
  * <ul>
- *   <li>{@code rw1} — 1 writer + 1 reader</li>
- *   <li>{@code rw10} — 1 writer + 10 readers</li>
+ *   <li>{@code rw1} - 1 writer + 1 reader</li>
+ *   <li>{@code rw10} - 1 writer + 10 readers</li>
  * </ul>
  *
  * <p>Run with:

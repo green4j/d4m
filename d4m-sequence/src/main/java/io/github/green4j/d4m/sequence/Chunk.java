@@ -375,7 +375,7 @@ public class Chunk {
      * @param src the source chunk to copy writer-metadata and entry data from
      */
     public void copyChunkDataFrom(final Chunk src) {
-        src.getEntryCount(); // volatile read — acquire fence
+        src.getEntryCount(); // volatile read - acquire fence
         final int dataEnd = src.getDataWriteOffset(); // plain read, now safe
         buffer.putBytes(IDENTITY_SIZE, src.buffer, IDENTITY_SIZE, dataEnd - IDENTITY_SIZE);
     }

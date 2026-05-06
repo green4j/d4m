@@ -70,14 +70,14 @@ class ConcurrencyStressTest {
 
     // Value layout (24 bytes):
     // [0..7]   sequence number  (long)
-    // [8..15]  Key hash         (long — widened from int)
+    // [8..15]  Key hash         (long - widened from int)
     // [16..23] Checksum         (sequence ^ keyHash ^ SEED)
     private static final int VALUE_SIZE = 24;
     private static final long SEED = 0xDEAD_BEEF_CAFE_BABEL;
 
-    // Hot tier: 32 KB — small enough to trigger eviction quickly
+    // Hot tier: 32 KB - small enough to trigger eviction quickly
     private static final int SMALL_HOT_TIER = 32 * 1024;
-    // Medium hot tier: 256 KB — enough room for several thousand entries
+    // Medium hot tier: 256 KB - enough room for several thousand entries
     private static final int MEDIUM_HOT_TIER = 256 * 1024;
     // Mmap tier: 1 MB
     private static final int MMAP_TIER = 1024 * 1024;
@@ -668,7 +668,7 @@ class ConcurrencyStressTest {
         fs.add(ex.submit(writer(ring, run, written, go)));
 
         // Many threads each rapidly create a consumer, do a few gets,
-        // Then discard — stress allocation / GC / lock churn
+        // Then discard - stress allocation/GC/lock churn
         final int churners = 8;
         for (int r = 0; r < churners; r++) {
             fs.add(ex.submit(() -> {

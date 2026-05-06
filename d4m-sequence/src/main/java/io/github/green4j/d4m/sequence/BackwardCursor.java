@@ -28,7 +28,7 @@ package io.github.green4j.d4m.sequence;
  * order. The cursor maintains its position across snapshot changes,
  * automatically repositioning when chunks are evicted or swapped.
  *
- * <p>Not thread-safe — intended for single-reader use.</p>
+ * <p>Not thread-safe - intended for single-reader use.</p>
  */
 public final class BackwardCursor {
     private final Sequence sequence;

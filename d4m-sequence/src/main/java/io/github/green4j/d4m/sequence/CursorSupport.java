@@ -179,7 +179,7 @@ abstract class CursorSupport {
         to.pinnedEpoch = from.pinnedEpoch;
         to.pinnedChunkIndex = from.pinnedChunkIndex;
         to.pinnedSnapshotVersion = from.pinnedSnapshotVersion;
-        from.clear();   // clear without decRef — ownership moved
+        from.clear();   // clear without decRef - ownership moved
     }
 
     /**

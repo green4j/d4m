@@ -61,8 +61,8 @@ public final class Sequence {
     private long nextEntryVersion = 1;
 
     // Segmented spine: array of fixed-size segments.
-    // PubAppend sets the next slot in the current segment — zero copy of existing data.
-    // DrainSwaps modifies segment elements in-place (safe — see drainSwaps javadoc).
+    // PubAppend sets the next slot in the current segment - zero copy of existing data.
+    // DrainSwaps modifies segment elements in-place (safe - see drainSwaps javadoc).
     // PubCow creates new segments for the affected region.
     private static final int SEG_SHIFT = ChunkSnapshot.SEG_SHIFT;
     private static final int SEG_SIZE = ChunkSnapshot.SEG_SIZE;
@@ -84,7 +84,7 @@ public final class Sequence {
 
     // Number of dead/compacted elements at the front of the spine.
     // ChunkSnapshot uses this as headOffset to translate logical indices.
-    // Currently always 0 — reserved for future tiered-index support.
+    // Currently always 0 - reserved for future tiered-index support.
     private int writerHeadOffset;
 
     // Writer-local cached tail state.
@@ -96,7 +96,7 @@ public final class Sequence {
     private long writerTailMaxOrder = Long.MIN_VALUE;
 
     // Reusable scratch arrays for insertBatch grouping (writer-thread only).
-    // Grown on demand, never shrunk — avoids per-call GC pressure.
+    // Grown on demand, never shrunk - avoids per-call GC pressure.
     private int[] batchGroupChunkIdx = new int[16];
     private int[] batchGroupFrom = new int[16];
     private int[] batchGroupTo = new int[16];
@@ -178,7 +178,7 @@ public final class Sequence {
                 return false;
             }
             if (writerTailWriteOffset + entrySize <= chunkSize) {
-                // HOT PATH — no volatile reads, pure sequential writes
+                // HOT PATH - no volatile reads, pure sequential writes
                 tail.writeEntry(writerTailWriteOffset, order, nextEntryVersion++,
                         payload, payloadOffset, payloadSize);
                 writerTailWriteOffset += entrySize;
@@ -489,7 +489,7 @@ public final class Sequence {
     }
 
     /**
-     * Inserts a single entry at the correct position (cold path — allocations
+     * Inserts a single entry at the correct position (cold path - allocations
      * tolerated). If the order is greater than or equal to the current maximum,
      * the entry is appended; otherwise a copy-on-write rebuild is performed.
      *
@@ -1120,9 +1120,9 @@ public final class Sequence {
      * that still reference the shared backing arrays are safe because:
      * <ol>
      *   <li>The mmap chunk contains an identical byte-for-byte copy of the
-     *       heap chunk data — readers get correct data either way.</li>
+     *       heap chunk data - readers get correct data either way.</li>
      *   <li>Reference and {@code long} writes are individually atomic on
-     *       64-bit JVMs — no torn reads of array elements.</li>
+     *       64-bit JVMs - no torn reads of array elements.</li>
      *   <li>The pin-validation protocol ({@link CursorSupport#acquirePin})
      *       detects buffer/epoch mismatches and triggers a
      *       {@code forceRefresh()}, so readers recover gracefully from any
@@ -1461,10 +1461,10 @@ public final class Sequence {
      * dropped. This yields two modes of operation depending on how the range is specified:
      *
      * <ul>
-     *   <li><b>Insert</b> — {@code rebuildStartIndexIncluded == rebuildEndIndexExcluded}:
+     *   <li><b>Insert</b> - {@code rebuildStartIndexIncluded == rebuildEndIndexExcluded}:
      *       no existing entries are removed; the new entry is spliced in before
      *       the entry at {@code rebuildStartIndexIncluded}.</li>
-     *   <li><b>Replace</b> — {@code rebuildStartIndexIncluded < rebuildEndIndexExcluded}:
+     *   <li><b>Replace</b> - {@code rebuildStartIndexIncluded < rebuildEndIndexExcluded}:
      *       entries in the range are removed and replaced by the single new entry.</li>
      * </ul>
      *
@@ -1560,7 +1560,7 @@ public final class Sequence {
 
     /**
      * Appends a chunk to the writer-owned arrays and publishes a new snapshot.
-     * O(1) amortised — extends the arrays in-place. Old snapshot readers only
+     * O(1) amortised - extends the arrays in-place. Old snapshot readers only
      * access indices below the previous length, so the new slot is invisible
      * to them until the snapshot is published.
      *
@@ -1581,8 +1581,8 @@ public final class Sequence {
      * affected position onward are freshly allocated.
      *
      * <p><b>Sealing policy:</b> every chunk except the new tail is sealed and
-     * enqueued for eviction. This is aggressive — freshly allocated heap chunks
-     * produced by the COW may be evicted to mmap before they are read — but it
+     * enqueued for eviction. This is aggressive - freshly allocated heap chunks
+     * produced by the COW may be evicted to mmap before they are read - but it
      * keeps the invariant simple: only the very last chunk in a sequence is
      * ever unsealed.
      *
@@ -1652,7 +1652,7 @@ public final class Sequence {
     /**
      * Ensures enough segments are allocated to hold at least {@code needed}
      * elements. Grows the spine pointer array (small) if necessary and
-     * allocates new fixed-size segments on demand — never copies existing
+     * allocates new fixed-size segments on demand - never copies existing
      * segment data.
      *
      * @param needed minimum required element capacity
@@ -2162,7 +2162,7 @@ public final class Sequence {
          *       allocator and nulls their scratch slots.</li>
          *   <li>Copies the used chunks into a right-sized result array and
          *       <b>nulls out their scratch slots</b> so they are never mistakenly
-         *       reused by a future rebuild — once published via {@link #pubCow},
+         *       reused by a future rebuild - once published via {@link #pubCow},
          *       these chunks may be submitted for reclamation, and the allocator
          *       could reassign them to a different sequence.</li>
          * </ol>

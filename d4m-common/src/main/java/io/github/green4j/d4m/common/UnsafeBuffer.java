@@ -36,9 +36,9 @@ import java.util.Objects;
  *
  * <p>Supports three backing stores:
  * <ul>
- *   <li>Raw {@code byte[]} — used for user-constructed payloads.</li>
- *   <li>Heap {@link ByteBuffer} (incl. slices) — used for heap-chunk slabs.</li>
- *   <li>Direct / {@link java.nio.MappedByteBuffer} — used for mmap chunks.</li>
+ *   <li>Raw {@code byte[]} - used for user-constructed payloads.</li>
+ *   <li>Heap {@link ByteBuffer} (incl. slices) - used for heap-chunk slabs.</li>
+ *   <li>Direct/{@link java.nio.MappedByteBuffer} - used for mmap chunks.</li>
  * </ul>
  *
  * <p>All accessors use a unified addressing scheme:

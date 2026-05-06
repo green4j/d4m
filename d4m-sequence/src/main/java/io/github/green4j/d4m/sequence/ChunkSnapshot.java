@@ -27,8 +27,8 @@ package io.github.green4j.d4m.sequence;
 /**
  * Immutable-once-published snapshot of the chunk list.
  *
- * <p>Uses a <b>segmented spine</b> — an array of fixed-size arrays
- * ({@code Chunk[][]} + {@code long[][]}) — instead of flat arrays.
+ * <p>Uses a <b>segmented spine</b> - an array of fixed-size arrays
+ * ({@code Chunk[][]} + {@code long[][]}) - instead of flat arrays.
  * This eliminates bulk copies when the writer appends new chunks:
  * only the small spine pointer array is ever copied (when it needs
  * to grow), while existing segment arrays are shared as-is.</p>
@@ -43,7 +43,7 @@ package io.github.green4j.d4m.sequence;
  * logical length, so readers of an older snapshot never observe a torn
  * write within their valid index range.  COW paths allocate new segments
  * for the affected region.  Swap (heap-to-mmap) paths modify segment
- * elements in-place — see {@code Sequence.drainSwaps()} for the safety
+ * elements in-place - see {@code Sequence.drainSwaps()} for the safety
  * argument.</p>
  *
  * <p><b>JMM note:</b> all instance fields are {@code final}, which
@@ -68,7 +68,7 @@ public final class ChunkSnapshot {
     private final long version;
 
     /**
-     * Primary constructor — stores spine arrays directly (zero copy).
+     * Primary constructor - stores spine arrays directly (zero copy).
      * Package-private; used by {@link Sequence} on the writer path.
      *
      * @param chunkSpine segmented chunk array
