@@ -6,13 +6,6 @@ In-memory data collections, typically with eviction to external memory such as S
 
 d4m provides low-latency data structures designed for single-writer/multi-reader workloads where data volume exceeds available heap memory. Hot data lives on the Java heap; cold data is transparently evicted to memory-mapped files, keeping the working set bounded while preserving access to the full dataset.
 
-Key properties:
-
-- Lock-free readers with consistent snapshot semantics
-- Zero-allocation hot paths for writes
-- Cooperative heap-to-mmap eviction driven by the writer
-- Off-heap and memory-mapped storage via `sun.misc.Unsafe`
-
 ## Modules
 
 | Module | Description |
