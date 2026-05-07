@@ -113,7 +113,7 @@ cursor.nextUntil(batchSize, upperBoundOrder, consumer);
 
 ### Snapshots
 
-To be used in Writer only, because of possible eviction of a Chunk:
+To be used in Writer only, because of possible eviction of a Chunk (mutation of the Chunk):
 ```java
 ChunkSnapshot snap = sequence.snapshot();
 int chunkCount = snap.size();
