@@ -64,7 +64,7 @@ MmapChunkAllocator mmap = new MmapChunkAllocator(
     epochCounter
 );
 
-EvictionQueue evictQ = new EvictionQueue();
+EvictionQueue evictQ = new EvictionQueue(); // we share an EvictionQueue among Sequences because of cooperative eviction implemented
 
 Sequence sequence = new Sequence("my-sequence", chunkSize, heap, mmap, evictQ);
 ```
