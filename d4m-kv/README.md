@@ -5,18 +5,18 @@ Tiered, high-performance key-value store with hash-sharded segments and cascadin
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  KeyValueStorage                                             │
-│      |                                                       │
-│      V                                                       │
-│  KeyValueRing  (hash-sharded, lock-striped)                  │
-│      |                                                       │
-│      +-- Segment 0 --- Tier 0 (heap) -> Tier 1 (mmap) -> ... │
-│      +-- Segment 1 --- Tier 0 (heap) -> Tier 1 (mmap) -> ... │
-│      +-- ...                                                 │
-│      +-- Segment N --- Tier 0 (heap) -> Tier 1 (mmap) -> ... │
-│                                                              │
-└──────────────────────────────────────────────────────────────┘
++--------------------------------------------------------------+
+|  KeyValueStorage                                             |
+|      |                                                       |
+|      V                                                       |
+|  KeyValueRing  (hash-sharded, lock-striped)                  |
+|      |                                                       |
+|      +-- Segment 0 --- Tier 0 (heap) -> Tier 1 (mmap) -> ... |
+|      +-- Segment 1 --- Tier 0 (heap) -> Tier 1 (mmap) -> ... |
+|      +-- ...                                                 |
+|      +-- Segment N --- Tier 0 (heap) -> Tier 1 (mmap) -> ... |
+|                                                              |
++--------------------------------------------------------------+
 ```
 
 ### Key Components
