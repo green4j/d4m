@@ -4,7 +4,7 @@ In-memory data collections, typically with eviction to external memory such as S
 
 ## Overview
 
-d4m provides low-latency data structures designed for single-writer/multi-reader workloads where data volume exceeds available heap memory. Hot data lives on the Java heap; cold data is transparently evicted to memory-mapped files, keeping the working set bounded while preserving access to the full dataset.
+d4m provides low-latency data structures designed for workloads where data volume exceeds available heap memory. Hot data lives on the Java heap; cold data is transparently evicted to memory-mapped files, keeping the working set bounded while preserving access to the full dataset.
 
 ## Modules
 
