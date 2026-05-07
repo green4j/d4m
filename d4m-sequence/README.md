@@ -76,7 +76,7 @@ Sequence sequence = new Sequence("my-sequence", chunkSize, heap, mmap, evictQ);
 boolean ok = sequence.append(order, payload, offset, size);
 
 // Batch append (pre-sorted, non-decreasing orders)
-int written = sequence.appendBatch(orders, payloads, offsets, sizes, count);
+int appended = sequence.appendBatch(orders, payloads, offsets, sizes, count);
 
 // Batch insert (pre-sorted, may insert into middle via COW)
 int inserted = sequence.insertBatch(orders, payloads, offsets, sizes, count);
