@@ -52,19 +52,20 @@ abstract class CursorSupport {
          * snapshot and chunk index, accounting for buffer identity and
          * epoch consistency.
          *
-         * @param snap the current snapshot to validate against
-         * @param ci   the chunk index to validate
+         * @param snap       the current snapshot to validate against
+         * @param chunkIndex the chunk index to validate
          * @return whether the existing pin is still usable
          */
-        boolean isValidFor(final ChunkSnapshot snap, final int ci) {
+        boolean isValidFor(final ChunkSnapshot snap,
+                           final int chunkIndex) {
             if (pinned == null) {
                 return false;
             }
-            if (pinnedChunkIndex != ci || pinnedSnapshotVersion != snap.version()) {
-                if (pinned.buffer() != snap.chunk(ci).buffer()) {
+            if (pinnedChunkIndex != chunkIndex || pinnedSnapshotVersion != snap.version()) {
+                if (pinned.buffer() != snap.chunk(chunkIndex).buffer()) {
                     return false;
                 }
-                if (pinnedEpoch != snap.epoch(ci)) {
+                if (pinnedEpoch != snap.epoch(chunkIndex)) {
                     return false;
                 }
             }

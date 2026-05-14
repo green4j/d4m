@@ -265,8 +265,8 @@ class SequenceTest {
             final ChunkSnapshot snapshot = sequence.snapshot();
             long prevOrder = Long.MIN_VALUE;
             int totalEntries = 0;
-            for (int chunkIndex = 0; chunkIndex < snapshot.size(); chunkIndex++) {
-                final Chunk chunk = snapshot.chunk(chunkIndex);
+            for (int chunkIdx = 0; chunkIdx < snapshot.size(); chunkIdx++) {
+                final Chunk chunk = snapshot.chunk(chunkIdx);
                 final int entryCount = chunk.getEntryCount();
                 int entryOffset = Chunk.HEADER_SIZE;
                 for (int entryIndex = 0; entryIndex < entryCount; entryIndex++) {
@@ -314,8 +314,8 @@ class SequenceTest {
             // Total entries should be 3
             int total = 0;
             final ChunkSnapshot snapshot = sequence.snapshot();
-            for (int chunkIndex = 0; chunkIndex < snapshot.size(); chunkIndex++) {
-                total += snapshot.chunk(chunkIndex).getEntryCount();
+            for (int chunkIdx = 0; chunkIdx < snapshot.size(); chunkIdx++) {
+                total += snapshot.chunk(chunkIdx).getEntryCount();
             }
             assertEquals(3, total);
         }
@@ -331,8 +331,8 @@ class SequenceTest {
             // Still only 1 entry, but payload changed
             final ChunkSnapshot snapshot = sequence.snapshot();
             int total = 0;
-            for (int chunkIndex = 0; chunkIndex < snapshot.size(); chunkIndex++) {
-                total += snapshot.chunk(chunkIndex).getEntryCount();
+            for (int chunkIdx = 0; chunkIdx < snapshot.size(); chunkIdx++) {
+                total += snapshot.chunk(chunkIdx).getEntryCount();
             }
             assertEquals(1, total);
 
@@ -511,8 +511,8 @@ class SequenceTest {
             // Find the entry with order 200 and check payload
             final ChunkSnapshot snap = sequence.snapshot();
             boolean found = false;
-            for (int ci = 0; ci < snap.size(); ci++) {
-                final Chunk chunk = snap.chunk(ci);
+            for (int chunkIdx = 0; chunkIdx < snap.size(); chunkIdx++) {
+                final Chunk chunk = snap.chunk(chunkIdx);
                 int off = Chunk.HEADER_SIZE;
                 for (int ei = 0; ei < chunk.getEntryCount(); ei++) {
                     if (chunk.entryOrder(off) == 200L) {
@@ -590,16 +590,16 @@ class SequenceTest {
 
         private int totalEntries(final ChunkSnapshot snapshot) {
             int total = 0;
-            for (int i = 0; i < snapshot.size(); i++) {
-                total += snapshot.chunk(i).getEntryCount();
+            for (int chunkIdx = 0; chunkIdx < snapshot.size(); chunkIdx++) {
+                total += snapshot.chunk(chunkIdx).getEntryCount();
             }
             return total;
         }
 
         private void assertOrdered(final ChunkSnapshot snapshot) {
             long prevOrder = Long.MIN_VALUE;
-            for (int ci = 0; ci < snapshot.size(); ci++) {
-                final Chunk chunk = snapshot.chunk(ci);
+            for (int chunkIdx = 0; chunkIdx < snapshot.size(); chunkIdx++) {
+                final Chunk chunk = snapshot.chunk(chunkIdx);
                 int off = Chunk.HEADER_SIZE;
                 for (int ei = 0; ei < chunk.getEntryCount(); ei++) {
                     final long order = chunk.entryOrder(off);
@@ -667,8 +667,8 @@ class SequenceTest {
 
             final ChunkSnapshot snapshot = sequence.snapshot();
             final List<Long> orders = new ArrayList<>();
-            for (int chunkIndex = 0; chunkIndex < snapshot.size(); chunkIndex++) {
-                final Chunk chunk = snapshot.chunk(chunkIndex);
+            for (int chunkIdx = 0; chunkIdx < snapshot.size(); chunkIdx++) {
+                final Chunk chunk = snapshot.chunk(chunkIdx);
                 final int entryCount = chunk.getEntryCount();
                 int entryOffset = Chunk.HEADER_SIZE;
                 for (int entryIndex = 0; entryIndex < entryCount; entryIndex++) {
@@ -696,8 +696,8 @@ class SequenceTest {
 
         private int totalEntries(final ChunkSnapshot snapshot) {
             int total = 0;
-            for (int i = 0; i < snapshot.size(); i++) {
-                total += snapshot.chunk(i).getEntryCount();
+            for (int chunkIdx = 0; chunkIdx < snapshot.size(); chunkIdx++) {
+                total += snapshot.chunk(chunkIdx).getEntryCount();
             }
             return total;
         }
