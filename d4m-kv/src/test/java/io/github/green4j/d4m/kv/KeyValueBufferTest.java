@@ -92,10 +92,7 @@ class KeyValueBufferTest {
             final int keySize;
             final int valueSize;
 
-            Event(final int index,
-                  final int slotIndex,
-                  final int keySize,
-                  final int valueSize) {
+            Event(final int index, final int slotIndex, final int keySize, final int valueSize) {
                 this.index = index;
                 this.slotIndex = slotIndex;
                 this.keySize = keySize;
