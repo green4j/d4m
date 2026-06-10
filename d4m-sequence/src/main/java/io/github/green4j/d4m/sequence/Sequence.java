@@ -803,7 +803,6 @@ public final class Sequence {
                                      final int[] payloadSizes,
                                      final int from,
                                      final int to) {
-        final int batchCount = to - from;
         int batchBytes = 0;
         for (int i = from; i < to; i++) {
             batchBytes += Chunk.entrySize(payloadSizes[i]);
