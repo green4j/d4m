@@ -955,10 +955,6 @@ public final class Sequence {
         }
     }
 
-    /**
-     * Internal append-batch that defers snapshot publication. Used by
-     * {@link #insertBatch} when all entries go to the tail.
-     */
     private int appendBatchInternal(final long[] orders,
                                     final AtomicBuffer payloads,
                                     final int[] payloadOffsets,
@@ -1035,13 +1031,6 @@ public final class Sequence {
         return writtenEntries;
     }
 
-    /**
-     * Validates that a single entry with the given payload size fits
-     * within the usable data area of a chunk.
-     *
-     * @param payloadSize payload size in bytes
-     * @throws IllegalArgumentException if the entry is too large
-     */
     private void checkFits(final int payloadSize) {
         if (Chunk.entrySize(payloadSize) > dataCap) {
             throw new IllegalArgumentException("entry too large: " + payloadSize);
@@ -1278,6 +1267,11 @@ public final class Sequence {
      * Same as {@link #searchChunk} but starts the binary search from
      * {@code lowHint}, exploiting the fact that sorted input produces
      * non-decreasing chunk indices.
+     *
+     * @param forSnapshot snapshot to search
+     * @param order       the order to locate an insertion point for
+     * @param lowHint     the start position
+     * @return target chunk index (always valid within the snapshot)
      */
     private static int searchChunkFrom(final ChunkSnapshot forSnapshot,
                                        final long order,
@@ -1304,6 +1298,11 @@ public final class Sequence {
      * Same as {@link #insertionChunkIndex} but starts the binary search from
      * {@code lowHint}, exploiting the fact that sorted input produces
      * non-decreasing chunk indices.
+     *
+     * @param forSnapshot snapshot to search
+     * @param order       the order to locate an insertion point for
+     * @param lowHint     the start position
+     * @return target chunk index target chunk index (always valid within the snapshot)
      */
     private static int insertionChunkIndexFrom(final ChunkSnapshot forSnapshot,
                                                final long order,
