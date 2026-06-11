@@ -45,9 +45,9 @@ Every mutation publishes a new `ChunkSnapshot` via a volatile store. Readers acq
 
 Snapshot internals worth knowing:
 
-- **Segmented spine.** A snapshot stores chunks in a fixed-size `Chunk[][]` (and a parallel `long[][]` of epochs) rather than a flat array. On `append`, the writer just writes into the next slot of the current segment — no array copy is needed. COW paths allocate fresh segments only for the affected region. Heap→mmap swaps mutate segment elements in place (safe — see "Pin protocol" below). Only the small spine pointer array is ever resized.
+- **Segmented spine.** A snapshot stores chunks in a fixed-size `Chunk[][]` (and a parallel `long[][]` of epochs) rather than a flat array. On `append`, the writer just writes into the next slot of the current segment — no array copy is needed. COW paths allocate fresh segments only for the affected region. Heap->mmap swaps mutate segment elements in place (safe — see "Pin protocol" below). Only the small spine pointer array is ever resized.
 - **Monotonic version.** Every published snapshot carries a strictly increasing `version()`. Cursors use it to detect layout changes between calls and reposition without re-scanning.
-- **`headOffset`.** A logical-index → physical-index translation kept on the snapshot. Reserved for future compaction of dead leading chunks; readers holding stale snapshots stay safe because each snapshot keeps its own head offset.
+- **`headOffset`.** A logical-index -> physical-index translation kept on the snapshot. Reserved for future compaction of dead leading chunks; readers holding stale snapshots stay safe because each snapshot keeps its own head offset.
 
 ## Implementation details
 
@@ -58,7 +58,7 @@ Each chunk's `AtomicBuffer` starts with a fixed 256-byte header split across two
 | Bytes | Field group | Why separated |
 |---|---|---|
 | 0–127 (line 0) | ref-count, eviction state, epoch | Identity / lifecycle — **never bulk-copied** between chunks. CAS-updated. |
-| 128–255 (line 1) | entry count, sealed flag, min/max order, data write offset | Writer metadata — **copyable** between chunks during heap→mmap swap and COW rebuilds. |
+| 128–255 (line 1) | entry count, sealed flag, min/max order, data write offset | Writer metadata — **copyable** between chunks during heap->mmap swap and COW rebuilds. |
 
 The split lets `copyChunkDataFrom` bulk-copy line 1 + entry data without touching line 0 (which the receiving chunk owns).
 
@@ -70,9 +70,9 @@ Per-entry header is 24 bytes (`order`, monotonic `version`, payload length); pay
 
 Readers must hold a reference to chunk data across many operations (sometimes thousands of calls). The writer can swap a heap chunk's buffer for an mmap one underneath them, and freed heap chunks can be returned to a Treiber stack and re-used. The contract that keeps readers safe:
 
-1. **Ref-count.** A cursor calls `CursorSupport.acquirePin(snapshot, chunkIndex, state)` which CAS-bumps the chunk's ref-count. While ref-count > 0, the allocator's `drainPendingReclamation` won't recycle the chunk (it CAS-sets `0 → -1` to claim it; non-zero ref-count fails the CAS).
+1. **Ref-count.** A cursor calls `CursorSupport.acquirePin(snapshot, chunkIndex, state)` which CAS-bumps the chunk's ref-count. While ref-count > 0, the allocator's `drainPendingReclamation` won't recycle the chunk (it CAS-sets `0 -> -1` to claim it; non-zero ref-count fails the CAS).
 2. **Epoch verification.** Every allocation stamps a fresh `chunkEpoch`. The pin records the expected epoch at acquire time and re-verifies it after the CAS. If the epoch drifted, the pin is released and the cursor re-pins.
-3. **Eviction state machine.** A heap chunk transitions `NONE → CANDIDATE → IN_PROGRESS`. Only `CANDIDATE` chunks are picked from the shared `EvictionQueue`; the CAS to `IN_PROGRESS` ensures one-shot processing. Writers about to read from a chunk pre-emptively CAS it to `IN_PROGRESS` so concurrent eviction can't recycle it underneath them.
+3. **Eviction state machine.** A heap chunk transitions `NONE -> CANDIDATE -> IN_PROGRESS`. Only `CANDIDATE` chunks are picked from the shared `EvictionQueue`; the CAS to `IN_PROGRESS` ensures one-shot processing. Writers about to read from a chunk pre-emptively CAS it to `IN_PROGRESS` so concurrent eviction can't recycle it underneath them.
 4. **Cooperative drain.** Sealing a heap chunk enqueues it for eviction. The next writer thread that runs out of free heap chunks calls `evictOne`, which copies the chunk's bytes to a freshly allocated mmap chunk and posts a `PendingSwap`. The owning sequence's writer drains pending swaps on its next call and replaces the heap reference with the mmap one in place. Old snapshots remain valid because the buffer identity / epoch check on the next `acquirePin` triggers a `forceRefresh()`.
 
 ### Writer-local tail cache
