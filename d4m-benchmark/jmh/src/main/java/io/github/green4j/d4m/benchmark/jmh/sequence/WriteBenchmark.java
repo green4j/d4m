@@ -43,7 +43,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Measures single-thread write throughput (entries written per second)
- * for one or 1000 time series with varying write profiles and chunk sizes.
+ * for one or 1000 sequences with varying write profiles and chunk sizes.
  *
  * <p>Run with:
  * <pre>
@@ -67,7 +67,7 @@ public class WriteBenchmark {
     int chunkSize;
 
     @Param({"1", "1000"})
-    int seriesCount;
+    int sequenceCount;
 
     @Param
     BenchmarkSupport.WriteProfile writeProfile;
@@ -83,19 +83,19 @@ public class WriteBenchmark {
     @Setup(Level.Trial)
     public void setup() {
         sequences = BenchmarkSupport.createSequences(
-                seriesCount, chunkSize,
-                BenchmarkSupport.defaultMaxHeap(seriesCount, chunkSize));
-        orderCounters = new long[seriesCount];
+                sequenceCount, chunkSize,
+                BenchmarkSupport.defaultMaxHeap(sequenceCount, chunkSize));
+        orderCounters = new long[sequenceCount];
         payload = BenchmarkSupport.createPayload();
         opCount = 0;
     }
 
     /**
-     * Writes one entry to the next series in round-robin order.
+     * Writes one entry to the next sequence in round-robin order.
      */
     @Benchmark
     public void write() {
-        final int si = (int) (opCount % seriesCount);
+        final int si = (int) (opCount % sequenceCount);
         BenchmarkSupport.writeEntry(
                 sequences[si], orderCounters, si, opCount, writeProfile, payload);
         opCount++;

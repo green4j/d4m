@@ -76,7 +76,7 @@ public class RealtimeBroadcastBenchmark {
     int chunkSize;
 
     @Param({"1", "1000"})
-    int seriesCount;
+    int sequenceCount;
 
     @Param
     BenchmarkSupport.WriteProfile writeProfile;
@@ -92,8 +92,8 @@ public class RealtimeBroadcastBenchmark {
     @Setup(Level.Trial)
     public void setup() {
         sequences = BenchmarkSupport.createSequences(
-                seriesCount, chunkSize,
-                BenchmarkSupport.defaultMaxHeap(seriesCount, chunkSize));
+                sequenceCount, chunkSize,
+                BenchmarkSupport.defaultMaxHeap(sequenceCount, chunkSize));
     }
 
     /**
@@ -108,11 +108,11 @@ public class RealtimeBroadcastBenchmark {
         /**
          * Initializes order counters and the payload buffer.
          *
-         * @param parent the enclosing benchmark providing series count
+         * @param parent the enclosing benchmark providing sequence count
          */
         @Setup(Level.Trial)
         public void setup(final RealtimeBroadcastBenchmark parent) {
-            orderCounters = new long[parent.seriesCount];
+            orderCounters = new long[parent.sequenceCount];
             payload = BenchmarkSupport.createPayload();
         }
     }
@@ -197,7 +197,7 @@ public class RealtimeBroadcastBenchmark {
     @Group("broadcast")
     @GroupThreads(1)
     public void writer(final WriterState ws) {
-        final int si = (int) (ws.opCount % seriesCount);
+        final int si = (int) (ws.opCount % sequenceCount);
         BenchmarkSupport.writeEntry(
                 sequences[si], ws.orderCounters, si, ws.opCount, writeProfile, ws.payload);
         ws.opCount++;

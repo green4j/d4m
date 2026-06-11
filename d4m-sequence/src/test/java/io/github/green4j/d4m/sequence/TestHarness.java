@@ -32,7 +32,7 @@ import java.nio.file.Files;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Shared test infrastructure for creating TimeSeries with
+ * Shared test infrastructure for creating Sequence with
  * heap and mmap allocators without real filesystem dependencies.
  */
 final class TestHarness {
@@ -80,7 +80,7 @@ final class TestHarness {
      * @param name the sequence name
      * @return a new sequence instance
      */
-    Sequence createTimeSeries(final String name) {
+    Sequence createSequence(final String name) {
         final MmapChunkAllocator mmapAlloc = mmap != null ? mmap : createStubMmap();
         return new Sequence(name, chunkSize, heap, mmapAlloc, evictQ);
     }

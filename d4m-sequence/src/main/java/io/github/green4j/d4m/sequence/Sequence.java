@@ -468,7 +468,7 @@ public final class Sequence {
 
             // Seal if the next packed entry (or minimum header) cannot fit.
             // ReadOffset always points to the start of the next unwritten packed
-            // Entry (long ts + int pLen + payload), so readOffset + 8 is pLen.
+            // Entry (long order + int pLen + payload), so readOffset + 8 is pLen.
             final boolean chunkFull = (written < entryCount)
                     ? nextEntryOffset + Chunk.entrySize(packedEntries.getInt(readOffset + 8)) > chunkSize
                     : nextEntryOffset + Chunk.ENTRY_HEADER_SIZE > chunkSize;
@@ -809,6 +809,13 @@ public final class Sequence {
         }
         final int oldData = oldChunk.getDataWriteOffset() - Chunk.HEADER_SIZE;
         final int est = Math.max(1, (oldData + batchBytes + dataCap - 1) / dataCap);
+        // Guard oldChunk against eviction during allocate() calls inside reset()/spill().
+        // evictOne() checks EVICTION_CANDIDATE -> EVICTION_IN_PROGRESS via CAS and skips
+        // anything already IN_PROGRESS, so this prevents oldChunk's buffer from being
+        // recycled as a scratch chunk while we are still reading it.
+        if (!oldChunk.casEvictionState(Chunk.EVICTION_NONE, Chunk.EVICTION_IN_PROGRESS)) {
+            oldChunk.casEvictionState(Chunk.EVICTION_CANDIDATE, Chunk.EVICTION_IN_PROGRESS);
+        }
         rebuildWriter.reset(est);
 
         int oldOff = Chunk.HEADER_SIZE;
@@ -1515,6 +1522,10 @@ public final class Sequence {
         final int suffixBytes = oldChunk.getDataWriteOffset() - suffixStartOff;
 
         final int est = Math.max(1, (oldData - removed + newEntrySize + dataCap - 1) / dataCap);
+        // Guard oldChunk against eviction during allocate() calls inside reset()/spill().
+        if (!oldChunk.casEvictionState(Chunk.EVICTION_NONE, Chunk.EVICTION_IN_PROGRESS)) {
+            oldChunk.casEvictionState(Chunk.EVICTION_CANDIDATE, Chunk.EVICTION_IN_PROGRESS);
+        }
         rebuildWriter.reset(est);
 
         if (rebuildStartIndexIncluded > 0) {

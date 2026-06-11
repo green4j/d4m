@@ -44,8 +44,8 @@ public final class BenchmarkSupport {
     public static final int READ_BATCH = 256;
 
     static final int RAMP_UP_ENTRIES = 100;
-    static final int ENTRIES_1_SERIES = 100_000;
-    static final int ENTRIES_PER_1000_SERIES = 5_000;
+    static final int ENTRIES_1_SEQUENCE = 100_000;
+    static final int ENTRIES_PER_1000_SEQUENCES = 5_000;
 
     private BenchmarkSupport() {
     }
@@ -103,18 +103,18 @@ public final class BenchmarkSupport {
     }
 
     /**
-     * Returns a default maximum heap budget based on series count and chunk size.
+     * Returns a default maximum heap budget based on sequence count and chunk size.
      *
-     * @param seriesCount the number of time series
+     * @param sequenceCount the number of sequences
      * @param chunkSize   the chunk size in bytes
      * @return the maximum heap budget in bytes
      */
-    static long defaultMaxHeap(final int seriesCount, final int chunkSize) {
-        if (seriesCount <= 1) {
+    static long defaultMaxHeap(final int sequenceCount, final int chunkSize) {
+        if (sequenceCount <= 1) {
             return (long) chunkSize * 200;
         }
         return Math.min(3L * 1024 * 1024 * 1024,
-                (long) seriesCount * chunkSize * 10);
+                (long) sequenceCount * chunkSize * 10);
     }
 
     /**
@@ -134,34 +134,34 @@ public final class BenchmarkSupport {
      * Writes a single entry to the given sequence using the specified {@link WriteProfile}.
      *
      * @param seq           the target sequence
-     * @param orderCounters per-series order counters, updated on append
-     * @param seriesIndex   the index into {@code orderCounters} for the current series
+     * @param orderCounters per-sequence order counters, updated on append
+     * @param sequenceIndex the index into {@code orderCounters} for the current sequence
      * @param opCount       the cumulative operation count, used to select append vs insert/update
      * @param profile       the write profile controlling the operation mix
      * @param payload       the payload buffer to write
      */
     static void writeEntry(final Sequence seq,
                            final long[] orderCounters,
-                           final int seriesIndex,
+                           final int sequenceIndex,
                            final long opCount,
                            final WriteProfile profile,
                            final AtomicBuffer payload) {
-        final long seriesOps = orderCounters[seriesIndex];
-        if (seriesOps < RAMP_UP_ENTRIES
+        final long sequenceOps = orderCounters[sequenceIndex];
+        if (sequenceOps < RAMP_UP_ENTRIES
                 || opCount % 100 < profile.appendPercent) {
-            seq.append(orderCounters[seriesIndex]++, payload, 0, PAYLOAD_SIZE);
+            seq.append(orderCounters[sequenceIndex]++, payload, 0, PAYLOAD_SIZE);
         } else if (profile.updateMode) {
-            final long order = ThreadLocalRandom.current().nextLong(seriesOps);
+            final long order = ThreadLocalRandom.current().nextLong(sequenceOps);
             seq.insertOrUpdateUnique(order, payload, 0, PAYLOAD_SIZE);
         } else {
             final long order = ThreadLocalRandom.current().nextLong(
-                    Math.max(1, seriesOps - 1));
+                    Math.max(1, sequenceOps - 1));
             seq.insert(order, payload, 0, PAYLOAD_SIZE);
         }
     }
 
     /**
-     * Pre-populates all sequences with the given number of entries per series.
+     * Pre-populates all sequences with the given number of entries per sequence.
      *
      * @param sequences        the sequences to populate
      * @param entriesPerSeries the number of entries to write into each sequence
@@ -180,13 +180,13 @@ public final class BenchmarkSupport {
     }
 
     /**
-     * Returns the number of entries to populate per series based on the total series count.
+     * Returns the number of entries to populate per sequence based on the total sequence count.
      *
-     * @param seriesCount the number of time series
-     * @return the number of entries per series
+     * @param sequenceCount the number of sequences
+     * @return the number of entries per sequence
      */
-    static int entriesPerSeries(final int seriesCount) {
-        return seriesCount <= 1 ? ENTRIES_1_SERIES : ENTRIES_PER_1000_SERIES;
+    static int entriesPerSeries(final int sequenceCount) {
+        return sequenceCount <= 1 ? ENTRIES_1_SEQUENCE : ENTRIES_PER_1000_SEQUENCES;
     }
 
     private static MmapChunkAllocator createMmap(final int chunkSize,

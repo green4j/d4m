@@ -53,7 +53,7 @@ class SequenceTest {
     @BeforeEach
     void setUp() {
         harness = new TestHarness(CHUNK_SIZE);
-        sequence = harness.createTimeSeries("test-series");
+        sequence = harness.createSequence("test-sequence");
     }
 
     @Nested
@@ -227,7 +227,7 @@ class SequenceTest {
     class BatchPackedAppend {
         @Test
         void appendBatchPackedWritesAll() {
-            // Packed format: long ts (8) + int pLen (4) + payload (pLen)
+            // Packed format: long order (8) + int pLen (4) + payload (pLen)
             final int count = 3;
             final int packedMsgSize = 8 + 4 + MSG_PAYLOAD; // 20 bytes per packed entry
             final AtomicBuffer packed =
@@ -349,7 +349,7 @@ class SequenceTest {
     class NameAndSnapshot {
         @Test
         void nameReturnsConstructionName() {
-            assertEquals("test-series", sequence.name());
+            assertEquals("test-sequence", sequence.name());
         }
 
         @Test
@@ -655,7 +655,7 @@ class SequenceTest {
         }
 
         @Test
-        void insertsAtCorrectPositionWhenOrderNotPresent() {
+        void insersequenceAtCorrectPositionWhenOrderNotPresent() {
             final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
             sequence.append(100L, payload, 0, MSG_PAYLOAD);
             sequence.append(300L, payload, 0, MSG_PAYLOAD);
@@ -682,7 +682,7 @@ class SequenceTest {
         }
 
         @Test
-        void insertsAsFirstEntryWhenEmpty() {
+        void insersequenceAsFirstEntryWhenEmpty() {
             sequence.insertOrUpdateEqual(100L,
                     TestHarness.payloadWithId(1),
                     0,

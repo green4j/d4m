@@ -72,13 +72,13 @@ public final class MergedForwardCursor {
      * Convenience factory that creates forward cursors for each sequence
      * and wraps them in a merged cursor.
      *
-     * @param series the sequences to merge
+     * @param sequences the sequences to merge
      * @return a new merged forward cursor
      */
-    public static MergedForwardCursor create(final Sequence... series) {
-        final ForwardCursor[] c = new ForwardCursor[series.length];
-        for (int i = 0; i < series.length; i++) {
-            c[i] = new ForwardCursor(series[i]);
+    public static MergedForwardCursor create(final Sequence... sequences) {
+        final ForwardCursor[] c = new ForwardCursor[sequences.length];
+        for (int i = 0; i < sequences.length; i++) {
+            c[i] = new ForwardCursor(sequences[i]);
         }
         return new MergedForwardCursor(c);
     }
@@ -87,11 +87,11 @@ public final class MergedForwardCursor {
      * Positions all underlying cursors to start iterating forward from
      * the given order and rebuilds the merge heap.
      *
-     * @param ts the order to seek to
+     * @param order the order to seek to
      */
-    public void seekTo(final long ts) {
+    public void seekTo(final long order) {
         for (final ForwardCursor c : cursors) {
-            c.seekTo(ts);
+            c.seekTo(order);
         }
         buildHeap();
     }

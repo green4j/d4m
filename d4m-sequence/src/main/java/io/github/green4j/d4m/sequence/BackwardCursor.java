@@ -100,17 +100,17 @@ public final class BackwardCursor {
     /**
      * Positions the cursor to start iterating backward from the entry
      * with the given order (inclusive). Entries with orders greater than
-     * {@code ts} are skipped.
+     * {@code order} are skipped.
      *
-     * @param ts the order to seek to
+     * @param order the order to seek to
      */
-    public void seekTo(final long ts) {
+    public void seekTo(final long order) {
         CursorSupport.releasePin(pinState);
         lastEntryOrder = Long.MAX_VALUE;
         lastEntryVersion = Long.MAX_VALUE;
         currentChunkIndex = -1;
         currentEntryIndex = -1;
-        seekOrder = ts;
+        seekOrder = order;
         seekActive = true;
         entryIndexNeedsResolve = false;
         snapshot = null;

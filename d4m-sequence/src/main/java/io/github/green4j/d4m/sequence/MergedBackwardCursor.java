@@ -72,13 +72,13 @@ public final class MergedBackwardCursor {
      * Convenience factory that creates backward cursors for each sequence
      * and wraps them in a merged cursor.
      *
-     * @param series the sequences to merge
+     * @param sequences the sequences to merge
      * @return a new merged backward cursor
      */
-    public static MergedBackwardCursor create(final Sequence... series) {
-        final BackwardCursor[] c = new BackwardCursor[series.length];
-        for (int i = 0; i < series.length; i++) {
-            c[i] = new BackwardCursor(series[i]);
+    public static MergedBackwardCursor create(final Sequence... sequences) {
+        final BackwardCursor[] c = new BackwardCursor[sequences.length];
+        for (int i = 0; i < sequences.length; i++) {
+            c[i] = new BackwardCursor(sequences[i]);
         }
         return new MergedBackwardCursor(c);
     }
@@ -87,11 +87,11 @@ public final class MergedBackwardCursor {
      * Positions all underlying cursors to start iterating backward from
      * the given order and rebuilds the merge heap.
      *
-     * @param ts the order to seek to
+     * @param order the order to seek to
      */
-    public void seekTo(final long ts) {
+    public void seekTo(final long order) {
         for (final BackwardCursor c : cursors) {
-            c.seekTo(ts);
+            c.seekTo(order);
         }
         buildHeap();
     }

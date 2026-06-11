@@ -51,7 +51,7 @@ class BackwardCursorTest {
     @BeforeEach
     void setUp() {
         harness = new TestHarness(CHUNK_SIZE);
-        sequence = harness.createTimeSeries("bwd");
+        sequence = harness.createSequence("bwd");
     }
 
     private List<byte[]> drain(final BackwardCursor cursor,
@@ -163,10 +163,10 @@ class BackwardCursorTest {
             cursor.seekTo(50L);
             final List<byte[]> result = drain(cursor, 100);
 
-            // Entries with ts <= 50: 0, 10, 20, 30, 40, 50 -> in reverse: 50, 40, 30, 20, 10, 0
+            // Entries with order <= 50: 0, 10, 20, 30, 40, 50 -> in reverse: 50, 40, 30, 20, 10, 0
             assertEquals(6, result.size());
-            assertEquals(5, result.get(0)[0] & 0xFF); // ts=50, id=5
-            assertEquals(0, result.get(5)[0] & 0xFF); // ts=0, id=0
+            assertEquals(5, result.get(0)[0] & 0xFF); // order=50, id=5
+            assertEquals(0, result.get(5)[0] & 0xFF); // order=0, id=0
             cursor.close();
         }
 
@@ -200,7 +200,7 @@ class BackwardCursorTest {
         void seekToEndRestartsFromTail() {
             appendN(3);
             final BackwardCursor cursor = new BackwardCursor(sequence);
-            drain(cursor, 1); // read one (id=2, ts=20)
+            drain(cursor, 1); // read one (id=2, order=20)
             cursor.seekToEnd();
 
             final List<byte[]> result = drain(cursor, 100);
@@ -227,7 +227,7 @@ class BackwardCursorTest {
             final BackwardCursor cursor = new BackwardCursor(sequence);
 
             assertEquals(20L, cursor.peekNextOrder());
-            drain(cursor, 1); // consume ts=20
+            drain(cursor, 1); // consume order=20
             cursor.invalidatePeek();
             assertEquals(10L, cursor.peekNextOrder());
             cursor.close();
@@ -260,9 +260,9 @@ class BackwardCursorTest {
             });
 
             assertEquals(n, result.size());
-            // Entries with ts >= 50: 90, 80, 70, 60, 50
+            // Entries with order >= 50: 90, 80, 70, 60, 50
             assertEquals(5, n);
-            assertEquals(9, result.get(0)[0] & 0xFF); // ts=90
+            assertEquals(9, result.get(0)[0] & 0xFF); // order=90
             cursor.close();
         }
     }

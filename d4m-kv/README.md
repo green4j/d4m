@@ -37,7 +37,7 @@ Tiered, high-performance key-value store with hash-sharded segments and cascadin
 1. `put(key, value)` hashes the key and selects a segment.
 2. Write lock acquired on that segment.
 3. Entry written to tier 0 (hottest).
-4. If tier 0's circular buffer wraps, evicted entries cascade down (tier 0 → tier 1 → ... → tier N).
+4. If tier 0's circular buffer wraps, evicted entries cascade down (tier 0 -> tier 1 -> ... -> tier N).
 5. When the coldest tier evicts, the `EvictionListener` is called.
 
 **Read path:**

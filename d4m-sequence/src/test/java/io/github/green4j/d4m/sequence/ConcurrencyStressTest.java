@@ -50,7 +50,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Concurrency stress-tests for the TimeSeries storage engine.
+ * Concurrency stress-tests for the Sequence storage engine.
  *
  * <p>Each test hammers a specific concurrent scenario for a configurable
  * duration (default 10 s). The goal is to shake out visibility bugs,
@@ -59,20 +59,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <pre>
  * Tuning knobs (system properties):
- *   -Dstress.duration.ms=30000   longer run  (default 10 000)
+ *   -Dstress.duration.ms=30000   longer run  (default 5 000)
  *   -Dstress.readers=8           more reader threads (default 4)
  *   -Dbuffer.bounds.check=true   enable UnsafeBuffer bounds checks
  * </pre>
  */
 class ConcurrencyStressTest {
-    private static final long DURATION_MS = Long.parseLong(System.getProperty("stress.duration.ms", "10000"));
+    private static final long DURATION_MS = Long.parseLong(System.getProperty("stress.duration.ms", "5000"));
     private static final int READERS = Integer.parseInt(System.getProperty("stress.readers", "4"));
     private static final int CHUNK = 4096;
 
     // Payload layout (24 bytes)
     // [0..7]   sequence   (long, 8 bytes)
     // [8..15]  order  (long, 8 bytes)
-    // [16..23] check (seq ^ ts ^ SEED) (long, 8 bytes)
+    // [16..23] check (seq ^ order ^ SEED) (long, 8 bytes)
     private static final int PAYLOAD_SIZE = 24;
     private static final long SEED = 0xDEAD_BEEF_CAFE_BABEL;
 
@@ -110,12 +110,12 @@ class ConcurrencyStressTest {
             throw new AssertionError("Short payload " + payloadLength);
         }
         final long s = buffer.getLong(payloadOffset);
-        final long t = buffer.getLong(payloadOffset + 8);
+        final long order = buffer.getLong(payloadOffset + 8);
         final long c = buffer.getLong(payloadOffset + 16);
-        if (c != (s ^ t ^ SEED)) {
+        if (c != (s ^ order ^ SEED)) {
             throw new AssertionError("Payload corrupt: seq=" + s
-                    + " ts=" + t
-                    + " expect=0x" + Long.toHexString(s ^ t ^ SEED)
+                    + " order=" + order
+                    + " expect=0x" + Long.toHexString(s ^ order ^ SEED)
                     + " got=0x" + Long.toHexString(c));
         }
     }
@@ -145,7 +145,7 @@ class ConcurrencyStressTest {
                     cur.next(200, (owner, entryOrder, buf, off, size) -> {
                         checkPayload(buf, off, size);
                         if (entryOrder > prev[0]) {
-                            throw new AssertionError("bwd ts in drain");
+                            throw new AssertionError("order in drain");
                         }
                         prev[0] = entryOrder;
                     });
@@ -338,7 +338,7 @@ class ConcurrencyStressTest {
                             final int n = cur.next(100, (owner, entryOrder, buf, off, size) -> {
                                 checkPayload(buf, off, size);
                                 if (entryOrder > prev[0]) {
-                                    throw new AssertionError("bwd ts increased: " + prev[0]
+                                    throw new AssertionError("order increased: " + prev[0]
                                             + " -> " + entryOrder);
                                 }
                                 prev[0] = entryOrder;
@@ -436,7 +436,7 @@ class ConcurrencyStressTest {
             final int[] sizes = new int[batchCount];
             final UnsafeBuffer arrayPl =
                     new UnsafeBuffer(new byte[batchCount * PAYLOAD_SIZE]);
-            // Packed: [long ts][int pLen][byte[PL] payload] per msg
+            // Packed: [long order][int pLen][byte[PL] payload] per msg
             final int packedMsgSize = 8 + 4 + PAYLOAD_SIZE; // 36
             final UnsafeBuffer packPl =
                     new UnsafeBuffer(new byte[batchCount * packedMsgSize]);
@@ -546,8 +546,8 @@ class ConcurrencyStressTest {
             return null;
         }));
 
-        // Readers: verify ts ordering + checksum (seq won't be monotonic
-        // Because inserts have later seq but earlier ts)
+        // Readers: verify ordering + checksum (seq won't be monotonic
+        // Because inserts have later seq but earlier order)
         for (int r = 0; r < READERS; r++) {
             fs.add(ex.submit(forwardReader(sequence, run, go, false)));
         }
@@ -564,26 +564,26 @@ class ConcurrencyStressTest {
 
     @Test
     void multiSeriesEviction() throws Exception {
-        final int seriesCount = 4;
-        // 8 Chunks shared across 4 series -> ~2 per series before eviction
+        final int sequenceCount = 4;
+        // 8 Chunks shared across 4 sequences -> ~2 per sequences before eviction
         final TestSequenceStorage storage = store(8L * CHUNK);
-        final Sequence[] series = new Sequence[seriesCount];
-        for (int i = 0; i < seriesCount; i++) {
-            series[i] = storage.getOrCreate("s" + i);
+        final Sequence[] sequences = new Sequence[sequenceCount];
+        for (int i = 0; i < sequenceCount; i++) {
+            sequences[i] = storage.getOrCreate("s" + i);
         }
 
         final AtomicBoolean run = new AtomicBoolean(true);
         final CountDownLatch go = new CountDownLatch(1);
         final ExecutorService ex = Executors.newCachedThreadPool();
         final List<Future<?>> fs = new ArrayList<>();
-        final AtomicLong[] counts = new AtomicLong[seriesCount];
+        final AtomicLong[] counts = new AtomicLong[sequenceCount];
 
-        // One writer + two readers per series
-        for (int i = 0; i < seriesCount; i++) {
+        // One writer + two readers per sequences
+        for (int i = 0; i < sequenceCount; i++) {
             counts[i] = new AtomicLong();
-            fs.add(ex.submit(appendWriter(series[i], run, counts[i], go)));
+            fs.add(ex.submit(appendWriter(sequences[i], run, counts[i], go)));
             for (int r = 0; r < 2; r++) {
-                fs.add(ex.submit(forwardReader(series[i], run, go, true)));
+                fs.add(ex.submit(forwardReader(sequences[i], run, go, true)));
             }
         }
 
@@ -594,22 +594,22 @@ class ConcurrencyStressTest {
         ex.shutdown();
 
         long total = 0;
-        for (int i = 0; i < seriesCount; i++) {
-            assertTrue(counts[i].get() > 100, "series " + i + " under-produced: " + counts[i].get());
+        for (int i = 0; i < sequenceCount; i++) {
+            assertTrue(counts[i].get() > 100, "sequences " + i + " under-produced: " + counts[i].get());
             total += counts[i].get();
         }
         System.out.printf(
-                "  [multiSeries] total wrote %,d msgs across %d series%n",
+                "  [multiSeries] total wrote %,d msgs across %d sequences%n",
                 total,
-                seriesCount);
+                sequenceCount);
     }
 
     @Test
     void mergedCursorOrdering() throws Exception {
-        final int seriesCount = 3;
+        final int sequenceCount = 3;
         final TestSequenceStorage storage = store(32L * CHUNK);
-        final Sequence[] sequences = new Sequence[seriesCount];
-        for (int i = 0; i < seriesCount; i++) {
+        final Sequence[] sequences = new Sequence[sequenceCount];
+        for (int i = 0; i < sequenceCount; i++) {
             sequences[i] = storage.getOrCreate("m" + i);
         }
 
@@ -620,7 +620,7 @@ class ConcurrencyStressTest {
         final ExecutorService ex = Executors.newCachedThreadPool();
         final List<Future<?>> fs = new ArrayList<>();
 
-        for (int i = 0; i < seriesCount; i++) {
+        for (int i = 0; i < sequenceCount; i++) {
             final Sequence sequence = sequences[i];
             fs.add(ex.submit(() -> {
                 go.await();
@@ -635,25 +635,25 @@ class ConcurrencyStressTest {
             }));
         }
 
-        // Merged cursor reader: verify per-source non-decreasing ts
+        // Merged cursor reader: verify per-source non-decreasing order
         for (int r = 0; r < 2; r++) {
             fs.add(ex.submit(() -> {
                 go.await();
                 final MergedForwardCursor mc = MergedForwardCursor.create(sequences);
-                final long[] perSrc = new long[seriesCount];
+                final long[] perSrc = new long[sequenceCount];
                 Arrays.fill(perSrc, Long.MIN_VALUE);
                 final AtomicLong delivered = new AtomicLong();
                 try {
                     while (run.get()) {
                         mc.next(64, (srcIdx, owner, entryOrder, buf, off, size) -> {
                             checkPayload(buf, off, size);
-                            final long t = entryOrder;
-                            if (t < perSrc[srcIdx]) {
+                            final long order = entryOrder;
+                            if (order < perSrc[srcIdx]) {
                                 throw new AssertionError(
                                         "merged: source " + srcIdx + " regressed "
-                                                + perSrc[srcIdx] + " -> " + t);
+                                                + perSrc[srcIdx] + " -> " + order);
                             }
-                            perSrc[srcIdx] = t;
+                            perSrc[srcIdx] = order;
                             delivered.incrementAndGet();
                         });
                         mc.refreshPeeks();
@@ -1026,7 +1026,7 @@ class ConcurrencyStressTest {
 
         final int bigPayloadLen = 32;
         final int batchTotal = 200;
-        // Packed format: [long ts][int pLen][byte[pLen] payload]...
+        // Packed format: [long order][int pLen][byte[pLen] payload]...
         final int perMsg = 8 + 4 + bigPayloadLen;
         final UnsafeBuffer pack =
                 new UnsafeBuffer(new byte[batchTotal * perMsg]);
@@ -1214,7 +1214,7 @@ class ConcurrencyStressTest {
                         cur.next(100, (owner, entryOrder, buf, off, size) -> {
                             checkPayload(buf, off, size);
                             if (entryOrder > prev[0]) {
-                                throw new AssertionError("bwd mixed ts");
+                                throw new AssertionError("Mixed order");
                             }
                             prev[0] = entryOrder;
                         });
@@ -1412,7 +1412,7 @@ class ConcurrencyStressTest {
                         cur.next(100, (owner, entryOrder, buf, off, size) -> {
                             checkPayload(buf, off, size);
                             if (entryOrder > prev[0]) {
-                                throw new AssertionError("evict+cow bwd ts");
+                                throw new AssertionError("evict+cow order");
                             }
                             prev[0] = entryOrder;
                         });

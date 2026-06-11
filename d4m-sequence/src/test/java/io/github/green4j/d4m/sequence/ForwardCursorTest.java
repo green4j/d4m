@@ -51,7 +51,7 @@ class ForwardCursorTest {
     @BeforeEach
     void setUp() {
         harness = new TestHarness(CHUNK_SIZE);
-        sequence = harness.createTimeSeries("fwd");
+        sequence = harness.createSequence("fwd");
     }
 
     private List<byte[]> drain(final ForwardCursor cursor, final int max) {
@@ -152,7 +152,7 @@ class ForwardCursorTest {
             cursor.seekTo(50L);
             final List<byte[]> result = drain(cursor, 100);
 
-            // Entries with ts >= 50: 50, 60, 70, 80, 90
+            // Entries with order >= 50: 50, 60, 70, 80, 90
             assertEquals(5, result.size());
             assertEquals(5, result.get(0)[0] & 0xFF);
             cursor.close();
@@ -233,7 +233,7 @@ class ForwardCursorTest {
                 result.add(copy);
             });
 
-            // Entries with ts <= 30: 0, 10, 20, 30
+            // Entries with order <= 30: 0, 10, 20, 30
             assertEquals(n, result.size());
             for (final byte[] msg : result) {
                 final int id = msg[0] & 0xFF;

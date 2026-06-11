@@ -49,7 +49,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * Measures historical (non-realtime) read throughput (entries read per second)
  * using pre-populated data. Supports forward and backward cursors as well as
- * merged variants, over 1 or 1000 time series.
+ * merged variants, over 1 or 1000 sequences.
  *
  * <p>Thread count is controlled by the JMH {@code -t} flag:
  * <pre>
@@ -75,7 +75,7 @@ public class HistoricalReadBenchmark {
     int chunkSize;
 
     @Param({"1", "1000"})
-    int seriesCount;
+    int sequenceCount;
 
     @Param
     BenchmarkSupport.WriteProfile writeProfile;
@@ -91,11 +91,11 @@ public class HistoricalReadBenchmark {
     @Setup(Level.Trial)
     public void setup() {
         sequences = BenchmarkSupport.createSequences(
-                seriesCount, chunkSize,
-                BenchmarkSupport.defaultMaxHeap(seriesCount, chunkSize));
+                sequenceCount, chunkSize,
+                BenchmarkSupport.defaultMaxHeap(sequenceCount, chunkSize));
         BenchmarkSupport.populateSequences(
                 sequences,
-                BenchmarkSupport.entriesPerSeries(seriesCount),
+                BenchmarkSupport.entriesPerSeries(sequenceCount),
                 writeProfile);
     }
 

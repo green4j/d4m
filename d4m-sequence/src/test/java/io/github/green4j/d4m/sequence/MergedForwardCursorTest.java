@@ -49,11 +49,11 @@ class MergedForwardCursorTest {
         harness = new TestHarness(CHUNK_SIZE);
     }
 
-    private void appendWithId(final Sequence ts,
+    private void appendWithId(final Sequence sequence,
                               final long order,
                               final int id) {
         final AtomicBuffer pl = TestHarness.payloadWithId(id);
-        ts.append(order, pl, 0, MSG_PAYLOAD);
+        sequence.append(order, pl, 0, MSG_PAYLOAD);
     }
 
     private List<int[]> drainMerged(final MergedForwardCursor cursor, final int max) {
@@ -81,17 +81,17 @@ class MergedForwardCursorTest {
     class TwoSeriesMerge {
         @Test
         void interleavedOrdersAreMergedInOrder() {
-            final Sequence tsA = harness.createTimeSeries("A");
-            final Sequence tsB = harness.createTimeSeries("B");
+            final Sequence sequenceA = harness.createSequence("A");
+            final Sequence sequenceB = harness.createSequence("B");
 
-            appendWithId(tsA, 10, 1);
-            appendWithId(tsA, 30, 3);
-            appendWithId(tsA, 50, 5);
-            appendWithId(tsB, 20, 2);
-            appendWithId(tsB, 40, 4);
-            appendWithId(tsB, 60, 6);
+            appendWithId(sequenceA, 10, 1);
+            appendWithId(sequenceA, 30, 3);
+            appendWithId(sequenceA, 50, 5);
+            appendWithId(sequenceB, 20, 2);
+            appendWithId(sequenceB, 40, 4);
+            appendWithId(sequenceB, 60, 6);
 
-            final MergedForwardCursor cursor = MergedForwardCursor.create(tsA, tsB);
+            final MergedForwardCursor cursor = MergedForwardCursor.create(sequenceA, sequenceB);
             final List<int[]> result = drainMerged(cursor, 100);
 
             assertEquals(6, result.size());
@@ -104,14 +104,14 @@ class MergedForwardCursorTest {
 
         @Test
         void sourceIndexIsCorrect() {
-            final Sequence tsA = harness.createTimeSeries("A");
-            final Sequence tsB = harness.createTimeSeries("B");
+            final Sequence sequenceA = harness.createSequence("A");
+            final Sequence sequenceB = harness.createSequence("B");
 
-            appendWithId(tsA, 10, 1);
-            appendWithId(tsB, 20, 2);
-            appendWithId(tsA, 30, 3);
+            appendWithId(sequenceA, 10, 1);
+            appendWithId(sequenceB, 20, 2);
+            appendWithId(sequenceA, 30, 3);
 
-            final MergedForwardCursor cursor = MergedForwardCursor.create(tsA, tsB);
+            final MergedForwardCursor cursor = MergedForwardCursor.create(sequenceA, sequenceB);
             final List<int[]> result = drainMerged(cursor, 100);
 
             assertEquals(0, result.get(0)[0]); // source A
@@ -125,7 +125,7 @@ class MergedForwardCursorTest {
     class SingleSeries {
         @Test
         void mergedCursorWithOneSeriesBehavesLikePlainCursor() {
-            final Sequence sequence = harness.createTimeSeries("single");
+            final Sequence sequence = harness.createSequence("single");
             appendWithId(sequence, 10, 1);
             appendWithId(sequence, 20, 2);
             appendWithId(sequence, 30, 3);
@@ -144,10 +144,10 @@ class MergedForwardCursorTest {
     class EmptySeries {
         @Test
         void allEmptyReturnsNothing() {
-            final Sequence tsA = harness.createTimeSeries("A");
-            final Sequence tsB = harness.createTimeSeries("B");
+            final Sequence sequenceA = harness.createSequence("A");
+            final Sequence sequenceB = harness.createSequence("B");
 
-            final MergedForwardCursor cursor = MergedForwardCursor.create(tsA, tsB);
+            final MergedForwardCursor cursor = MergedForwardCursor.create(sequenceA, sequenceB);
             final List<byte[]> result = drainPlain(cursor, 100);
 
             assertTrue(result.isEmpty());
@@ -156,11 +156,11 @@ class MergedForwardCursorTest {
 
         @Test
         void oneEmptyOnePopulated() {
-            final Sequence tsA = harness.createTimeSeries("A");
-            final Sequence tsB = harness.createTimeSeries("B");
-            appendWithId(tsB, 10, 1);
+            final Sequence sequenceA = harness.createSequence("A");
+            final Sequence sequenceB = harness.createSequence("B");
+            appendWithId(sequenceB, 10, 1);
 
-            final MergedForwardCursor cursor = MergedForwardCursor.create(tsA, tsB);
+            final MergedForwardCursor cursor = MergedForwardCursor.create(sequenceA, sequenceB);
             final List<byte[]> result = drainPlain(cursor, 100);
 
             assertEquals(1, result.size());
@@ -171,19 +171,19 @@ class MergedForwardCursorTest {
     @Nested
     class SeekTo {
         @Test
-        void seekToAffectsAllUnderlyingCursors() {
-            final Sequence tsA = harness.createTimeSeries("A");
-            final Sequence tsB = harness.createTimeSeries("B");
-            appendWithId(tsA, 10, 1);
-            appendWithId(tsA, 30, 3);
-            appendWithId(tsB, 20, 2);
-            appendWithId(tsB, 40, 4);
+        void seekToAffecsequenceAllUnderlyingCursors() {
+            final Sequence sequenceA = harness.createSequence("A");
+            final Sequence sequenceB = harness.createSequence("B");
+            appendWithId(sequenceA, 10, 1);
+            appendWithId(sequenceA, 30, 3);
+            appendWithId(sequenceB, 20, 2);
+            appendWithId(sequenceB, 40, 4);
 
-            final MergedForwardCursor cursor = MergedForwardCursor.create(tsA, tsB);
+            final MergedForwardCursor cursor = MergedForwardCursor.create(sequenceA, sequenceB);
             cursor.seekTo(25L);
             final List<int[]> result = drainMerged(cursor, 100);
 
-            // Entries >= 25: ts=30(id=3), ts=40(id=4)
+            // Entries >= 25: order=30(id=3), order=40(id=4)
             assertEquals(2, result.size());
             assertEquals(3, result.get(0)[1]);
             assertEquals(4, result.get(1)[1]);
@@ -195,12 +195,12 @@ class MergedForwardCursorTest {
     class PeekOrder {
         @Test
         void peekReturnsSmallestOrderAcrossSeries() {
-            final Sequence tsA = harness.createTimeSeries("A");
-            final Sequence tsB = harness.createTimeSeries("B");
-            appendWithId(tsA, 50, 1);
-            appendWithId(tsB, 20, 2);
+            final Sequence sequenceA = harness.createSequence("A");
+            final Sequence sequenceB = harness.createSequence("B");
+            appendWithId(sequenceA, 50, 1);
+            appendWithId(sequenceB, 20, 2);
 
-            final MergedForwardCursor cursor = MergedForwardCursor.create(tsA, tsB);
+            final MergedForwardCursor cursor = MergedForwardCursor.create(sequenceA, sequenceB);
 
             assertEquals(20L, cursor.peekNextOrder());
             cursor.close();
@@ -208,7 +208,7 @@ class MergedForwardCursorTest {
 
         @Test
         void peekReturnsExhaustedWhenAllDrained() {
-            final Sequence sequence = harness.createTimeSeries("x");
+            final Sequence sequence = harness.createSequence("x");
             appendWithId(sequence, 10, 1);
 
             final MergedForwardCursor cursor = MergedForwardCursor.create(sequence);
@@ -223,11 +223,11 @@ class MergedForwardCursorTest {
     class WidthAndAccessor {
         @Test
         void widthReturnsNumberOfSeries() {
-            final Sequence tsA = harness.createTimeSeries("A");
-            final Sequence tsB = harness.createTimeSeries("B");
-            final Sequence tsC = harness.createTimeSeries("C");
+            final Sequence sequenceA = harness.createSequence("A");
+            final Sequence sequenceB = harness.createSequence("B");
+            final Sequence tsC = harness.createSequence("C");
 
-            final MergedForwardCursor cursor = MergedForwardCursor.create(tsA, tsB, tsC);
+            final MergedForwardCursor cursor = MergedForwardCursor.create(sequenceA, sequenceB, tsC);
 
             assertEquals(3, cursor.width());
             assertNotNull(cursor.cursor(0));

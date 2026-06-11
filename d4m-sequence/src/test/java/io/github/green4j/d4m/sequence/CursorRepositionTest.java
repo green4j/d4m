@@ -48,7 +48,7 @@ class CursorRepositionTest {
     @BeforeEach
     void setUp() {
         harness = new TestHarness(CHUNK_SIZE);
-        sequence = harness.createTimeSeries("repos");
+        sequence = harness.createSequence("repos");
     }
 
     private void appendWithId(final long order,
@@ -98,7 +98,7 @@ class CursorRepositionTest {
             final List<byte[]> batch2 = drainForward(cursor, 100);
             assertFalse(batch2.isEmpty(), "should read remaining entries");
 
-            // Verify ts=300 (id=3) is eventually delivered
+            // Verify order=300 (id=3) is eventually delivered
             boolean foundId3 = false;
             for (final byte[] msg : batch2) {
                 if (TestHarness.idFromPayload(msg) == 3) {
@@ -142,7 +142,7 @@ class CursorRepositionTest {
             // COW insert
             sequence.insert(200L, TestHarness.payloadWithId(2), 0, MSG_PAYLOAD);
 
-            // Should continue from before ts=300
+            // Should continue from before order=300
             final List<byte[]> batch2 = drainBackward(cursor, 100);
             assertFalse(batch2.isEmpty());
 
@@ -164,13 +164,13 @@ class CursorRepositionTest {
             appendWithId(30L, 3);
 
             final BackwardCursor cursor = new BackwardCursor(sequence);
-            drainBackward(cursor, 1); // consume ts=30
+            drainBackward(cursor, 1); // consume order=30
 
             appendWithId(40L, 4); // new snapshot
 
-            // Should NOT re-deliver ts=30 but continue to ts=20
+            // Should NOT re-deliver order=30 but continue to order=20
             final List<byte[]> batch = drainBackward(cursor, 100);
-            // Ts=20 (id=2) and ts=10 (id=1) expected
+            // Ts=20 (id=2) and order=10 (id=1) expected
             boolean foundId3 = false;
             for (final byte[] msg : batch) {
                 if (TestHarness.idFromPayload(msg) == 3) {

@@ -46,7 +46,7 @@ class EvictionQueueTest {
         void fifoOrdering() {
             final EvictionQueue queue = new EvictionQueue();
             final TestHarness harness = new TestHarness(2048);
-            final Sequence sequence = harness.createTimeSeries("test");
+            final Sequence sequence = harness.createSequence("test");
             final Chunk chunk1 = harness.allocHeapChunk();
             final Chunk chunk2 = harness.allocHeapChunk();
 
@@ -64,7 +64,7 @@ class EvictionQueueTest {
         @Test
         void entryCapturesEpochAtCreation() {
             final TestHarness harness = new TestHarness(2048);
-            final Sequence sequence = harness.createTimeSeries("test");
+            final Sequence sequence = harness.createSequence("test");
             final Chunk chunk = harness.allocHeapChunk();
             final long epochAtCreation = chunk.getChunkEpoch();
 
