@@ -45,7 +45,7 @@ Every mutation publishes a new `ChunkSnapshot` via a volatile store. Readers acq
 
 Snapshot internals worth knowing:
 
-- **Segmented spine.** A snapshot stores chunks in a fixed-size `Chunk[][]` (and a parallel `long[][]` of epochs) rather than a flat array. On `append`, the writer just writes into the next slot of the current segment — no array copy is needed. COW paths allocate fresh segments only for the affected region. Heap->mmap swaps mutate segment elements in place (safe — see "Pin protocol" below). Only the small spine pointer array is ever resized.
+- **Segmented spine.** A snapshot stores chunks in a fixed-size `Chunk[][]` (and a parallel `long[][]` of epochs) rather than a flat array. On `append`, the writer just writes into the next slot of the current segment - no array copy is needed. COW paths allocate fresh segments only for the affected region. Heap->mmap swaps mutate segment elements in place (safe - see "Pin protocol" below). Only the small spine pointer array is ever resized.
 - **Monotonic version.** Every published snapshot carries a strictly increasing `version()`. Cursors use it to detect layout changes between calls and reposition without re-scanning.
 - **`headOffset`.** A logical-index -> physical-index translation kept on the snapshot. Reserved for future compaction of dead leading chunks; readers holding stale snapshots stay safe because each snapshot keeps its own head offset.
 
@@ -57,8 +57,8 @@ Each chunk's `AtomicBuffer` starts with a fixed 256-byte header split across two
 
 | Bytes | Field group | Why separated |
 |---|---|---|
-| 0–127 (line 0) | ref-count, eviction state, epoch | Identity / lifecycle — **never bulk-copied** between chunks. CAS-updated. |
-| 128–255 (line 1) | entry count, sealed flag, min/max order, data write offset | Writer metadata — **copyable** between chunks during heap->mmap swap and COW rebuilds. |
+| 0–127 (line 0) | ref-count, eviction state, epoch | Identity / lifecycle - **never bulk-copied** between chunks. CAS-updated. |
+| 128–255 (line 1) | entry count, sealed flag, min/max order, data write offset | Writer metadata - **copyable** between chunks during heap->mmap swap and COW rebuilds. |
 
 The split lets `copyChunkDataFrom` bulk-copy line 1 + entry data without touching line 0 (which the receiving chunk owns).
 
@@ -81,7 +81,7 @@ The `append` hot path reads neither the volatile `snapshot` nor `getEntryCount` 
 
 ### Eviction cadence
 
-The writer doesn't drain pending swaps after every single `append`. It checks every `SWAP_CHECK_INTERVAL` (64) appends — a power-of-two so the check is `(appendsSinceSwapCheck & (INTERVAL-1)) == 0`. The `drainSwapSearchStart` index tracks the last-touched spine position so the lookup is amortized O(1) for append-only workloads.
+The writer doesn't drain pending swaps after every single `append`. It checks every `SWAP_CHECK_INTERVAL` (64) appends - a power-of-two so the check is `(appendsSinceSwapCheck & (INTERVAL-1)) == 0`. The `drainSwapSearchStart` index tracks the last-touched spine position so the lookup is amortized O(1) for append-only workloads.
 
 ### Mmap files are never unmapped
 

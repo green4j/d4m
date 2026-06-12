@@ -124,6 +124,15 @@ storage.get(keyBuf, 0, keyBytes.length, (buffer, offset, size) -> {
 });
 ```
 
+### Atomic Compound Operations: `compute(...)`
+
+`KeyValues` exposes two `compute` overloads that run a user `action` atomically under whatever locking the implementation owns. On `KeyValueRing` that's the per-segment `StampedLock`; on `SingleThreadedKeyValueRing` it's a no-op call. Either way, the action object is long-lived and owns its `ComputeContext` instance(s), so the steady-state hot loop allocates **nothing**.
+
+- `compute(key, action)` -- single-key form. The action's `ComputeContext` is bound to that key and the segment's write lock is held for the duration of `execute()`; the action can read the current value, decide, and write a new one atomically.
+- `compute(key1, key2, action)` -- two-key form. The ring acquires both segment write locks in **canonical (segment-index) order**, so concurrent calls with the keys swapped cannot deadlock. This is the primitive used internally by `KeyListStorage.append` to make the metadata read-modify-write and the entry put atomic.
+
+Inside the action, the caller may use **only** the provided contexts to touch the store; calling other `KeyValues` methods would acquire further locks in an undefined order and risk deadlock.
+
 ### Eviction Listener
 
 `KeyValueStorage.Builder` configures an **unbounded tier chain** (`maxNumberOfTiers = Integer.MAX_VALUE`) and consequently does not expose an `EvictionListener` -- evictions just spill into a new mmap tier on demand. To receive eviction callbacks (e.g. to persist to an external store), drop down to the lower-level API and assemble a `KeyValueRing` yourself:
@@ -160,9 +169,69 @@ KeyValueSegment segment = new KeyValueSegment(1, factory, evictionListener);
 
 ## Concurrency Model
 
-- **Thread-safe** for concurrent `put` and `get` from multiple threads.
+- **Thread-safe** for concurrent `put`, `get` and `compute` from multiple threads.
 - Lock striping via `StampedLock` per segment minimizes contention.
-- Exclusive write lock for `put`, shared read lock (`StampedLock.readLock()`) for `get`.
+- Exclusive write lock for `put` and `compute`, shared read lock (`StampedLock.readLock()`) for `get`.
+
+### Concurrency Variants
+
+`KeyValueStorage.Builder` exposes two build modes; the `KeyValues` interface contract is the same either way:
+
+- `KeyValueStorage.builder().build()` -- thread-safe ring (`KeyValueRing`). This is the default; the description above and the `Builder` reference apply unchanged.
+- `KeyValueStorage.builder().buildSingleThreaded()` -- lock-free single-thread variant (`SingleThreadedKeyValueRing`). All `put`/`get`/`compute` calls must come from one thread; in return there is **no per-call lock cost**. Suited for replay pipelines and embedded use where concurrency is the caller's responsibility.
+
+## Key-list Collection on Top: `KeyListStorage`
+
+`KeyListStorage` is an append-only **multi-value-per-key** collection built directly on top of `KeyValues`. Each user key maps to an ordered sequence of values that can only grow; random access by entry index is provided through a reusable cursor (`ListAccessor`). Delete is not supported.
+
+### Threading
+
+`KeyLists` inherits the threading contract of the backing `KeyValues` verbatim, with no extra locks above what the backing store already provides:
+
+- **Backing store is single-threaded** -> all calls (writer's `append`, reader's `list` + accessor iteration) must come from the same thread. Zero overhead.
+- **Backing store is thread-safe** -> any number of writer threads may `append` concurrently on their own `KeyListsWriter` instances (obtained from `KeyLists.newWriter()`), including against the same user key -- the two-key `compute` makes the metadata RMW + entry put atomic. Concurrently, any number of reader threads may call `list(...)` and iterate via their own `ListAccessor` instances.
+
+One rule per thread: a `KeyListsWriter` or `ListAccessor` instance must not be shared across threads.
+
+### Encoding
+
+Two byte-distinguishable key namespaces share the underlying `KeyValues`:
+
+- **User-metadata key**: `[0x01 | userKey]`. The value at this key is the fixed 8-byte `[userKeyIndex (40 bits BE) | entryCount (24 bits BE)]` blob; same-size in-place updates let the entry count grow without re-allocating slots.
+- **Synthetic entry key**: 8 bytes. Byte 0 has bit 7 set (marker, so the byte is `>= 0x80`); the remaining 7 bits plus bytes 1..7 carry a 39-bit `userKeyIndex` and a 24-bit `entryIndex`, written byte-by-byte so the layout is endianness-independent.
+
+Because byte 0 distinguishes the two forms (`0x01` for user-metadata vs `>= 0x80` for synthetic), no byte collisions are possible regardless of the user key's content or length.
+
+### Capacity
+
+- Distinct user keys: `2^39 - 1` (~549 billion).
+- Entries per list: `2^24 - 1` = 16,777,215.
+
+The backing `KeyValues` store must be empty at construction time (the in-memory `userKeyIndexSequence` restarts at 1 and would otherwise collide with previously issued indices).
+
+### Code sample
+
+```java
+KeyValueStorage kv = KeyValueStorage.builder().build();
+KeyListStorage  lists  = new KeyListStorage(kv);
+
+// One per writer thread, reused across appends.
+KeyListsWriter writer = lists.newWriter();
+writer.append(keyBuf, 0, keyLen, valueBuf, 0, valueLen);
+
+// One per reader thread, reused across reads.
+ListAccessor accessor = new ListAccessor();
+if (lists.list(accessor, keyBuf, 0, keyLen)) {
+    for (int i = 0; i < accessor.size(); i++) {
+        accessor.get(i, valueConsumer);
+    }
+    // or accessor.forEach(valueConsumer);
+}
+```
+
+### Allocation profile
+
+Steady-state `append` and `list` + `forEach` allocate **nothing**: the writer is its own `TwoKeyComputeAction` (no lambda capture), the contexts and metadata consumer are reusable fields, and the reader's load buffers live on the `ListAccessor`. `KeyListsAllocationTest` enforces this.
 
 ## License
 

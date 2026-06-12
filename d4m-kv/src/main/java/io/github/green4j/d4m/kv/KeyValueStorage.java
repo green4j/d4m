@@ -29,9 +29,14 @@ import java.io.File;
 import java.nio.file.Paths;
 
 /**
- * A thread-safe {@link KeyValues} backed by a {@link KeyValueRing} of
+ * A {@link KeyValues} backed by an {@link AbstractKeyValueRing} of
  * {@link KeyValueSegment}s with tiered main memory and memory-mapped file storage.
  * Use {@link #builder()} to configure and construct instances.
+ *
+ * <p>{@link Builder#build()} returns a thread-safe instance backed by
+ * {@link KeyValueRing}. {@link Builder#buildSingleThreaded()} returns a
+ * non-thread-safe instance backed by {@link SingleThreadedKeyValueRing}; all
+ * {@code put} and {@code get} calls on it must be made by a single thread.
  */
 public final class KeyValueStorage implements KeyValues {
 
@@ -296,44 +301,65 @@ public final class KeyValueStorage implements KeyValues {
         }
 
         /**
-         * Constructs a new {@link KeyValueStorage} with the current builder configuration.
+         * Constructs a new thread-safe {@link KeyValueStorage} backed by a
+         * {@link KeyValueRing}.
          *
          * @return a new storage instance
          */
         public KeyValueStorage build() {
-            return new KeyValueStorage(this);
+            return new KeyValueStorage(this, false);
+        }
+
+        /**
+         * Constructs a new non-thread-safe {@link KeyValueStorage} backed by a
+         * {@link SingleThreadedKeyValueRing}. All {@code put} and {@code get} calls
+         * must be made by a single thread.
+         *
+         * @return a new single-threaded storage instance
+         */
+        public KeyValueStorage buildSingleThreaded() {
+            return new KeyValueStorage(this, true);
         }
     }
 
-    private final KeyValueRing ring;
+    private final AbstractKeyValueRing ring;
 
-    private KeyValueStorage(final Builder parameters) {
+    private KeyValueStorage(final Builder parameters, final boolean singleThreaded) {
         final int memoryTierSize = (int) (parameters.totalMainMemory / parameters.ringSize);
 
         final int memoryTierInitialCapacity = 65536;
         final int mmapFileTierInitialCapacity = 65536;
 
-        ring = new KeyValueRing(
-                parameters.ringSize,
-                parameters.ringShuffleMultiplier,
-                (index ->
-                        new KeyValueSegment(
-                                parameters.prepareMmapFilesOnStart ? 2 : 1,
-                                new MmapTierFactory(
-                                        index,
-                                        memoryTierSize,
-                                        parameters.useOffHeapMainMemory,
-                                        memoryTierInitialCapacity,
-                                        parameters.mmapFileSize,
-                                        mmapFileTierInitialCapacity,
-                                        parameters.mmapFilesFolder,
-                                        Integer.MAX_VALUE,
-                                        builder().mmapTierListener
-                                ),
-                                null // no eviction with unlimited
-                        )
-                )
-        );
+        final SegmentFactory segmentFactory = index ->
+                new KeyValueSegment(
+                        parameters.prepareMmapFilesOnStart ? 2 : 1,
+                        new MmapTierFactory(
+                                index,
+                                memoryTierSize,
+                                parameters.useOffHeapMainMemory,
+                                memoryTierInitialCapacity,
+                                parameters.mmapFileSize,
+                                mmapFileTierInitialCapacity,
+                                parameters.mmapFilesFolder,
+                                Integer.MAX_VALUE,
+                                parameters.mmapTierListener
+                        ),
+                        null // no eviction with unlimited
+                );
+
+        if (singleThreaded) {
+            ring = new SingleThreadedKeyValueRing(
+                    parameters.ringSize,
+                    parameters.ringShuffleMultiplier,
+                    segmentFactory
+            );
+        } else {
+            ring = new KeyValueRing(
+                    parameters.ringSize,
+                    parameters.ringShuffleMultiplier,
+                    segmentFactory
+            );
+        }
     }
 
     /**
@@ -373,11 +399,42 @@ public final class KeyValueStorage implements KeyValues {
     }
 
     /**
-     * Returns the underlying {@link KeyValueRing} used by this storage.
+     * {@inheritDoc}
+     */
+    @Override
+    public void compute(final AtomicBuffer key,
+                        final int keyOffset,
+                        final int keySize,
+                        final ComputeAction action) {
+        ring.compute(key, keyOffset, keySize, action);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void compute(final AtomicBuffer key1,
+                        final int key1Offset,
+                        final int key1Size,
+                        final AtomicBuffer key2,
+                        final int key2Offset,
+                        final int key2Size,
+                        final TwoKeyComputeAction action) {
+        ring.compute(
+                key1, key1Offset, key1Size,
+                key2, key2Offset, key2Size,
+                action
+        );
+    }
+
+    /**
+     * Returns {@link KeyValueSegments} used by this storage.
+     * Concrete type is {@link KeyValueRing} for {@link Builder#build()} and
+     * {@link SingleThreadedKeyValueRing} for {@link Builder#buildSingleThreaded()}.
      *
      * @return the ring
      */
-    public KeyValueRing ring() {
+    public KeyValueSegments ring() {
         return ring;
     }
 }

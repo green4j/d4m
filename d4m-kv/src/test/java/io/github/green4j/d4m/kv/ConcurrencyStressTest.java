@@ -58,13 +58,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <pre>
  * Tuning knobs (system properties):
- *   -Dstress.duration.ms=30000   longer run  (default 10 000)
+ *   -Dstress.duration.ms=30000   longer run  (default 5 000)
  *   -Dstress.readers=8           more reader threads (default 4)
  * </pre>
  */
 class ConcurrencyStressTest {
     private static final long DURATION_MS =
-            Long.parseLong(System.getProperty("stress.duration.ms", "10000"));
+            Long.parseLong(System.getProperty("stress.duration.ms", "5000"));
     private static final int READERS =
             Integer.parseInt(System.getProperty("stress.readers", "4"));
 

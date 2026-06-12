@@ -29,8 +29,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-import java.util.concurrent.locks.StampedLock;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -131,22 +129,6 @@ class KeyValueSegmentTest {
 
             assertEquals(1, segment.size());
             assertNotNull(segment.getTier(0));
-        }
-
-        @Test
-        void lockIsAvailable() {
-            final KeyValueSegment segment = new KeyValueSegment(1, heapTierFactory(), null);
-
-            assertNotNull(segment.lock());
-            final long writeStamp = segment.lock().tryWriteLock();
-            assertTrue(writeStamp != 0L);
-            segment.lock().unlockWrite(writeStamp);
-            final long readStamp = segment.lock().readLock();
-            try {
-                assertTrue(StampedLock.isReadLockStamp(readStamp));
-            } finally {
-                segment.lock().unlockRead(readStamp);
-            }
         }
     }
 

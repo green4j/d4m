@@ -25,16 +25,13 @@ package io.github.green4j.d4m.kv;
 
 import io.github.green4j.d4m.common.AtomicBuffer;
 
-import java.util.concurrent.locks.StampedLock;
-
 /**
- * A thread-safe {@link AbstractKeyValueRing} that guards each distinct segment
- * with its own {@link StampedLock}. Locks are stored in a parallel array
- * matching the shuffled segment array, so the same lock instance protects
- * every shuffled alias of a given segment.
+ * A lock-free {@link AbstractKeyValueRing} intended for single-threaded use.
+ * All {@link #put} and {@link #get} calls must be made by the same thread;
+ * concurrent access has undefined behavior. Avoids the per-segment lock
+ * overhead of {@link KeyValueRing}.
  */
-public class KeyValueRing extends AbstractKeyValueRing {
-    private final StampedLock[] locks;
+public class SingleThreadedKeyValueRing extends AbstractKeyValueRing {
 
     /**
      * Creates a ring with the specified number of segments and a default shuffle multiplier of 16.
@@ -42,8 +39,8 @@ public class KeyValueRing extends AbstractKeyValueRing {
      * @param size    the desired number of distinct segments (rounded up to power of two)
      * @param factory the factory used to create each segment
      */
-    public KeyValueRing(final int size,
-                        final SegmentFactory factory) {
+    public SingleThreadedKeyValueRing(final int size,
+                                      final SegmentFactory factory) {
         this(
                 size,
                 16,
@@ -53,26 +50,15 @@ public class KeyValueRing extends AbstractKeyValueRing {
 
     /**
      * Creates a ring with the specified number of segments and shuffle multiplier.
-     * The shuffle multiplier controls the internal array size to distribute hash
-     * collisions across segments more evenly.
      *
      * @param size              the desired number of distinct segments (rounded up to power of two)
      * @param shuffleMultiplier the multiplier for the internal segment array (rounded up to power of two)
      * @param factory           the factory used to create each segment
      */
-    public KeyValueRing(final int size,
-                        final int shuffleMultiplier,
-                        final SegmentFactory factory) {
+    public SingleThreadedKeyValueRing(final int size,
+                                      final int shuffleMultiplier,
+                                      final SegmentFactory factory) {
         super(size, shuffleMultiplier, factory);
-
-        final int normShuffleMultiplier = segments.length / numberOfSegments;
-        locks = new StampedLock[segments.length];
-        for (int i = 0; i < numberOfSegments; i++) {
-            final StampedLock lock = new StampedLock();
-            for (int j = 0; j < normShuffleMultiplier; j++) {
-                locks[i + (j * numberOfSegments)] = lock;
-            }
-        }
     }
 
     /**
@@ -94,21 +80,15 @@ public class KeyValueRing extends AbstractKeyValueRing {
         assert hash > 0;
 
         final int segmentIndex = hash & (segments.length - 1);
-        final StampedLock segmentLock = locks[segmentIndex];
-        final long stamp = segmentLock.writeLock();
-        try {
-            segments[segmentIndex].put(
-                    hash,
-                    key,
-                    keyOffset,
-                    keySize,
-                    value,
-                    valueOffset,
-                    valueSize
-            );
-        } finally {
-            segmentLock.unlockWrite(stamp);
-        }
+        segments[segmentIndex].put(
+                hash,
+                key,
+                keyOffset,
+                keySize,
+                value,
+                valueOffset,
+                valueSize
+        );
     }
 
     /**
@@ -128,19 +108,13 @@ public class KeyValueRing extends AbstractKeyValueRing {
         assert hash > 0;
 
         final int segmentIndex = hash & (segments.length - 1);
-        final StampedLock segmentLock = locks[segmentIndex];
-        final long stamp = segmentLock.readLock();
-        try {
-            return segments[segmentIndex].get(
-                    hash,
-                    key,
-                    keyOffset,
-                    keySize,
-                    consumer
-            );
-        } finally {
-            segmentLock.unlockRead(stamp);
-        }
+        return segments[segmentIndex].get(
+                hash,
+                key,
+                keyOffset,
+                keySize,
+                consumer
+        );
     }
 
     /**
@@ -149,13 +123,7 @@ public class KeyValueRing extends AbstractKeyValueRing {
     @Override
     protected void runUnderSegmentLock(final int segmentIndex,
                                        final ComputeAction action) {
-        final StampedLock segmentLock = locks[segmentIndex];
-        final long stamp = segmentLock.writeLock();
-        try {
-            action.execute();
-        } finally {
-            segmentLock.unlockWrite(stamp);
-        }
+        action.execute();
     }
 
     /**
@@ -165,34 +133,6 @@ public class KeyValueRing extends AbstractKeyValueRing {
     protected void runUnderTwoSegmentLocks(final int firstIdx,
                                            final int secondIdx,
                                            final TwoKeyComputeAction action) {
-        final StampedLock firstLock = locks[firstIdx];
-        final long firstStamp = firstLock.writeLock();
-        try {
-            if (firstIdx == secondIdx) {
-                action.execute();
-            } else {
-                final StampedLock secondLock = locks[secondIdx];
-                final long secondStamp = secondLock.writeLock();
-                try {
-                    action.execute();
-                } finally {
-                    secondLock.unlockWrite(secondStamp);
-                }
-            }
-        } finally {
-            firstLock.unlockWrite(firstStamp);
-        }
-    }
-
-    /**
-     * Returns the {@link StampedLock} that guards the segment at the given index
-     * in the internal shuffled array. Two indices that share the same underlying
-     * segment instance also share the same lock.
-     *
-     * @param index the index into the shuffled segment array
-     * @return the lock for that segment
-     */
-    StampedLock getLock(final int index) {
-        return locks[index];
+        action.execute();
     }
 }

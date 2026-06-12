@@ -25,16 +25,11 @@ package io.github.green4j.d4m.example.kv;
 
 import io.github.green4j.d4m.common.AtomicBuffer;
 import io.github.green4j.d4m.common.UnsafeBuffer;
+import io.github.green4j.d4m.example.ExampleSupport;
 import io.github.green4j.d4m.kv.ByteArrayValueConsumer;
-import io.github.green4j.d4m.kv.KeyValueRing;
-import io.github.green4j.d4m.kv.KeyValueSegment;
 import io.github.green4j.d4m.kv.KeyValueStorage;
-import io.github.green4j.d4m.kv.Tier;
 
-import static io.github.green4j.d4m.common.BitSupport.SIZE_OF_LONG;
-import static io.github.green4j.d4m.example.ExampleSupport.BR;
 import static io.github.green4j.d4m.example.ExampleSupport.PERFORMANCE_RESULT_TITLE;
-import static io.github.green4j.d4m.example.ExampleSupport.formatBytesToHumanReadable;
 
 /**
  * Demonstrates basic usage of {@link KeyValueStorage}: bulk put/get
@@ -67,15 +62,16 @@ public class TieredKeyValueStorageUsage {
         final long startGetTime = getAllKeyValues(storage);
         final long endGetTime = System.nanoTime();
 
-        printPerformanceMetrics(
-                endPutTime - startPutTime,
-                endGetTime - startGetTime
-        );
+        System.out.println(PERFORMANCE_RESULT_TITLE);
+        ExampleSupport.printPerformanceMetric("PUTs", NUMBER_OF_MEASURED_KEY_VALUES,
+                endPutTime - startPutTime);
+        ExampleSupport.printPerformanceMetric("GETs", NUMBER_OF_MEASURED_KEY_VALUES,
+                endGetTime - startGetTime);
 
-        printStatistics(
-                storage,
-                builder
-        );
+        ExampleSupport.printKeyValueStorageStatistics(
+                storage, builder,
+                "[ Key Value Storage Statistics ]",
+                null);
 
         System.out.println("Let's make some probes from the Storage...");
         printSomeKeyValues(
@@ -104,9 +100,9 @@ public class TieredKeyValueStorageUsage {
             }
 
             final int keyLen = KEY_PREFIX_BYTES.length
-                    + putIntAsAscii(keyBuffer, KEY_PREFIX_BYTES.length, i);
+                    + ExampleSupport.putIntAsAscii(keyBuffer, KEY_PREFIX_BYTES.length, i);
             final int valueLen = VALUE_PREFIX_BYTES.length
-                    + putIntAsAscii(valueBuffer, VALUE_PREFIX_BYTES.length, i);
+                    + ExampleSupport.putIntAsAscii(valueBuffer, VALUE_PREFIX_BYTES.length, i);
 
             storage.put(keyBuffer, 0, keyLen, valueBuffer, 0, valueLen);
         }
@@ -127,7 +123,7 @@ public class TieredKeyValueStorageUsage {
             }
 
             final int keyLen = KEY_PREFIX_BYTES.length
-                    + putIntAsAscii(keyBuffer, KEY_PREFIX_BYTES.length, i);
+                    + ExampleSupport.putIntAsAscii(keyBuffer, KEY_PREFIX_BYTES.length, i);
 
             if (!storage.get(keyBuffer, 0, keyLen, valueConsumer)) {
                 throw new IllegalStateException("Key not found for index " + i);
@@ -147,7 +143,7 @@ public class TieredKeyValueStorageUsage {
 
         for (int i = firstIndex; i < firstIndex + size; i++) {
             final int keyLen = KEY_PREFIX_BYTES.length
-                    + putIntAsAscii(keyBuffer, KEY_PREFIX_BYTES.length, i);
+                    + ExampleSupport.putIntAsAscii(keyBuffer, KEY_PREFIX_BYTES.length, i);
 
             storage.get(keyBuffer, 0, keyLen, valueConsumer);
 
@@ -160,132 +156,5 @@ public class TieredKeyValueStorageUsage {
             )
                     + ']');
         }
-    }
-
-    private static int putIntAsAscii(final AtomicBuffer buffer,
-                                     final int offset,
-                                     final int value) {
-        if (value == 0) {
-            buffer.putByte(offset, (byte) '0');
-            return 1;
-        }
-
-        int temp = value;
-        int digits = 0;
-        while (temp > 0) {
-            digits++;
-            temp /= 10;
-        }
-
-        int pos = offset + digits - 1;
-        int remainder = value;
-        while (remainder > 0) {
-            buffer.putByte(pos--, (byte) ('0' + (remainder % 10)));
-            remainder /= 10;
-        }
-
-        return digits;
-    }
-
-    private static void printPerformanceMetrics(final long putTime,
-                                                final long getTime) {
-        System.out.println(PERFORMANCE_RESULT_TITLE);
-        final double nanosPerSecond = 1_000_000_000.0;
-        final double putsPerSecond = NUMBER_OF_MEASURED_KEY_VALUES / (putTime / nanosPerSecond);
-        System.out.printf("%-2s%-5s: %10.4f per sec%n", " ", "PUTs", putsPerSecond);
-        final double getsPerSecond = NUMBER_OF_MEASURED_KEY_VALUES / (getTime / nanosPerSecond);
-        System.out.printf("%-2s%-5s: %10.4f per sec%n", " ", "GETs", getsPerSecond);
-    }
-
-    private static void printStatistics(
-            final KeyValueStorage storage,
-            final KeyValueStorage.Builder builder) {
-        long totalKeyValuesStored = 0;
-
-        long totalMetaMemoryAllocated = 0;
-        long totalMetaMemoryUsed = 0;
-        long totalMainMemoryAllocated = 0;
-        long totalMainMemoryUsed = 0;
-        long totalMmapMemoryAllocated = 0;
-        long totalMmapMemoryUsed = 0;
-        long totalMemoryAllocated = 0;
-        long totalMemoryUsed = 0;
-
-        final KeyValueRing ring = storage.ring();
-        final int numberOfSegments = ring.numberOfSegments();
-
-        System.out.printf(
-                "%s%s%s%n",
-                "-".repeat(7), "[ Key Value Storage Statistics ]", "-".repeat(7)
-        );
-
-        System.out.printf("%-5s: %2d%n", "Number of Segments", numberOfSegments);
-
-        for (int i = 0; i < ring.numberOfSegments(); i++) {
-            final KeyValueSegment segment = ring.getSegment(i);
-            System.out.printf("%-2s%-5s: %2d tiers%n", " ", "Segment " + i, segment.size());
-            for (int t = 0; t < segment.size(); t++) {
-                final Tier tier = segment.getTier(t);
-                final int size = tier.size();
-                System.out.printf(
-                        "%-4s%-16s: %10d key-values%n",
-                        " ",
-                        "Tier " + t + " ["
-                                + (t > 0 ? "mmap" : (builder.useOffHeapMainMemory() ? "offh" : "heap"))
-                                + ']',
-                        size
-                );
-
-                final int metadataCapacity = tier.metadataCapacity();
-                final int binaryCapacity = tier.binaryCapacity();
-                final int binaryUsedSpace = tier.binaryUsedSpace();
-
-                final String tierMemoryFormat = "%-10s%-10s: %10d bytes%n";
-                System.out.printf(tierMemoryFormat, " ", "Allocated", binaryCapacity);
-                System.out.printf(tierMemoryFormat, " ", "Used", binaryUsedSpace);
-
-                totalKeyValuesStored += size;
-
-                if (t == 0) {
-                    totalMainMemoryAllocated += binaryCapacity;
-                    totalMainMemoryUsed += binaryUsedSpace;
-                } else {
-                    totalMmapMemoryAllocated += binaryCapacity;
-                    totalMmapMemoryUsed += binaryUsedSpace;
-                }
-
-                totalMetaMemoryAllocated += (long) metadataCapacity * SIZE_OF_LONG;
-                totalMetaMemoryUsed += (long) size * SIZE_OF_LONG;
-
-                totalMemoryAllocated += binaryCapacity;
-                totalMemoryUsed += binaryUsedSpace;
-            }
-        }
-
-        System.out.println(BR);
-
-        System.out.printf("%-28s: %13d%n", "Total Key-Values", totalKeyValuesStored);
-        final String totalMemoryValueFormat = "%-28s: %13s%n";
-        System.out.printf(totalMemoryValueFormat, "Total Meta Memory Allocated",
-                formatBytesToHumanReadable(totalMetaMemoryAllocated));
-        System.out.printf(totalMemoryValueFormat, "Total Meta Memory Used",
-                formatBytesToHumanReadable(totalMetaMemoryUsed));
-        System.out.printf(totalMemoryValueFormat, "Total Main Memory Allocated",
-                formatBytesToHumanReadable(totalMainMemoryAllocated));
-        System.out.printf(totalMemoryValueFormat, "Total Main Memory Used",
-                formatBytesToHumanReadable(totalMainMemoryUsed));
-        System.out.printf(totalMemoryValueFormat, "Total Mmap Memory Allocated",
-                formatBytesToHumanReadable(totalMmapMemoryAllocated));
-        System.out.printf(totalMemoryValueFormat, "Total Mmap Memory Used",
-                formatBytesToHumanReadable(totalMmapMemoryUsed));
-
-        System.out.println(BR);
-
-        System.out.printf(totalMemoryValueFormat, "Total Memory Allocated",
-                formatBytesToHumanReadable(totalMemoryAllocated + totalMetaMemoryAllocated));
-        System.out.printf(totalMemoryValueFormat, "Total Memory Used",
-                formatBytesToHumanReadable(totalMemoryUsed + totalMetaMemoryUsed));
-
-        System.out.println(BR);
     }
 }

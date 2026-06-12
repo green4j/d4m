@@ -25,16 +25,15 @@ package io.github.green4j.d4m.kv;
 
 import io.github.green4j.d4m.common.AtomicBuffer;
 
-import java.util.concurrent.locks.StampedLock;
-
 /**
  * A segment within a {@link KeyValueRing} that manages a chain of {@link Tier}s.
  * When the hottest tier fills up, evicted entries cascade into cooler tiers, which
  * are created on demand by the configured {@link TierFactory}.
+ *
+ * <p>This class is not thread-safe; synchronization, when required, is the
+ * responsibility of the enclosing ring (see {@link KeyValueRing}).
  */
 public class KeyValueSegment {
-    private final StampedLock lock = new StampedLock();
-
     private final TierFactory factory;
     private final EvictionListener evictionListener;
     private final EvictionListener tierLinker;
@@ -145,17 +144,6 @@ public class KeyValueSegment {
             }
             size++;
         }
-    }
-
-    /**
-     * Returns the stamp-based lock used to synchronize access to this segment.
-     * This lock is not reentrant; do not acquire it again on the same thread
-     * while already holding a read or write stamp.
-     *
-     * @return the lock
-     */
-    public StampedLock lock() {
-        return lock;
     }
 
     /**

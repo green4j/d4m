@@ -30,12 +30,19 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.Arrays;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -222,6 +229,294 @@ class KeyValueRingTest {
 
             assertTrue(nonEmptyTierCount > 1,
                     "keys should distribute across multiple segments");
+        }
+
+        @Test
+        void shuffledIndicesShareLockInstance() {
+            final KeyValueRing ring = new KeyValueRing(2, 4, simpleSegmentFactory());
+
+            final int numberOfSegments = ring.numberOfSegments();
+            final int shuffleMultiplier = ring.size() / numberOfSegments;
+
+            for (int i = 0; i < numberOfSegments; i++) {
+                final KeyValueSegment baseSegment = ring.getSegment(i);
+                final java.util.concurrent.locks.StampedLock baseLock = ring.getLock(i);
+                assertNotNull(baseLock);
+                for (int j = 1; j < shuffleMultiplier; j++) {
+                    final int shuffledIndex = i + (j * numberOfSegments);
+                    assertTrue(baseSegment == ring.getSegment(shuffledIndex),
+                            "shuffled segment at " + shuffledIndex + " must equal base");
+                    assertTrue(baseLock == ring.getLock(shuffledIndex),
+                            "shuffled lock at " + shuffledIndex + " must equal base");
+                }
+            }
+        }
+
+        @Test
+        void distinctSegmentsHaveDistinctLocks() {
+            final KeyValueRing ring = new KeyValueRing(4, 2, simpleSegmentFactory());
+
+            for (int i = 0; i < ring.numberOfSegments(); i++) {
+                for (int k = i + 1; k < ring.numberOfSegments(); k++) {
+                    assertTrue(ring.getLock(i) != ring.getLock(k),
+                            "locks for distinct segments " + i + " and " + k + " must differ");
+                }
+            }
+        }
+    }
+
+    @Nested
+    class Compute {
+
+        @Test
+        void singleKeyComputeAtomicReadModifyWrite() throws Exception {
+            // Two writer threads concurrently increment a counter stored under one key.
+            // Without atomic RMW, races would lose updates.
+            final KeyValueRing ring = new KeyValueRing(2, simpleSegmentFactory());
+
+            final AtomicBuffer counterKey = new UnsafeBuffer(new byte[8]);
+            counterKey.putLong(0, 0xDEADBEEFCAFE0000L);
+
+            final int writers = 4;
+            final int incrementsPerWriter = 5_000;
+
+            final CountDownLatch start = new CountDownLatch(1);
+            final CountDownLatch done = new CountDownLatch(writers);
+            final ExecutorService pool = Executors.newFixedThreadPool(writers);
+
+            for (int w = 0; w < writers; w++) {
+                pool.submit(() -> {
+                    final IncrementingAction action = new IncrementingAction();
+                    try {
+                        start.await();
+                        for (int i = 0; i < incrementsPerWriter; i++) {
+                            ring.compute(counterKey, 0, 8, action);
+                        }
+                    } catch (final InterruptedException ignored) {
+                        Thread.currentThread().interrupt();
+                    } finally {
+                        done.countDown();
+                    }
+                });
+            }
+            start.countDown();
+            done.await();
+            pool.shutdown();
+
+            final LongValueConsumer reader = new LongValueConsumer();
+            assertTrue(ring.get(counterKey, 0, 8, reader));
+            assertEquals(writers * incrementsPerWriter, reader.value);
+        }
+
+        @Test
+        void twoKeyComputeNoSelfDeadlockOnSharedSegment() {
+            // Two keys whose shuffled indices differ but reduce to the same
+            // canonical segment (and therefore the same StampedLock). A naive
+            // implementation that orders by shuffled index would call
+            // writeLock() twice on the same non-reentrant lock and hang.
+            final KeyValueRing ring = new KeyValueRing(2, 4, simpleSegmentFactory());
+
+            // ring.size() == 8, numberOfSegments == 2. Find two distinct
+            // shuffled indices that share the same lock.
+            final int numberOfSegments = ring.numberOfSegments();
+            assertEquals(2, numberOfSegments);
+            final java.util.concurrent.locks.StampedLock baseLock = ring.getLock(0);
+            int sharedShuffledIndex = -1;
+            for (int i = 0 + numberOfSegments; i < ring.size(); i += numberOfSegments) {
+                if (ring.getLock(i) == baseLock) {
+                    sharedShuffledIndex = i;
+                    break;
+                }
+            }
+            assertTrue(sharedShuffledIndex > 0, "must find a shuffled alias");
+
+            // Pick keys whose hashes land on indices 0 and sharedShuffledIndex.
+            final int mask = ring.size() - 1;
+            final AtomicBuffer kA = findKeyHashingTo(0, mask);
+            final AtomicBuffer kB = findKeyHashingTo(sharedShuffledIndex, mask);
+
+            final NoopTwoKeyAction action = new NoopTwoKeyAction();
+            assertTimeoutPreemptively(Duration.ofSeconds(2), () ->
+                    ring.compute(kA, 0, kA.capacity(), kB, 0, kB.capacity(), action));
+        }
+
+        @Test
+        void twoKeyComputeNoDeadlockUnderCrossingAcquire() throws Exception {
+            // Two threads request locks on the same two segments in opposite order
+            // via compute(keyA, keyB) and compute(keyB, keyA). Without canonical
+            // ordering this deadlocks; with it the run completes promptly.
+            final KeyValueRing ring = new KeyValueRing(8, simpleSegmentFactory());
+
+            // Pick two keys hashing to distinct segments. With ring size 8 and
+            // shuffle 16, segments.length = 128; differing high bytes give a high
+            // chance of distinct segments.
+            final AtomicBuffer keyA = new UnsafeBuffer(new byte[4]);
+            keyA.putBytes(0, new byte[]{1, 2, 3, 4});
+            final AtomicBuffer keyB = new UnsafeBuffer(new byte[4]);
+            keyB.putBytes(0, new byte[]{40, 39, 38, 37});
+
+            final int iterations = 5_000;
+            final CountDownLatch start = new CountDownLatch(1);
+
+            final Callable<Void> forward = () -> {
+                final NoopTwoKeyAction action = new NoopTwoKeyAction();
+                start.await();
+                for (int i = 0; i < iterations; i++) {
+                    ring.compute(keyA, 0, 4, keyB, 0, 4, action);
+                }
+                return null;
+            };
+            final Callable<Void> reverse = () -> {
+                final NoopTwoKeyAction action = new NoopTwoKeyAction();
+                start.await();
+                for (int i = 0; i < iterations; i++) {
+                    ring.compute(keyB, 0, 4, keyA, 0, 4, action);
+                }
+                return null;
+            };
+
+            assertTimeoutPreemptively(Duration.ofSeconds(20), () -> {
+                final ExecutorService pool = Executors.newFixedThreadPool(2);
+                try {
+                    final Future<Void> f1 = pool.submit(forward);
+                    final Future<Void> f2 = pool.submit(reverse);
+                    start.countDown();
+                    f1.get();
+                    f2.get();
+                } finally {
+                    pool.shutdown();
+                }
+            });
+        }
+    }
+
+    /**
+     * Reusable counter increment action. Reads the current long value (if any),
+     * writes value+1 back. Counts visited iterations in {@code seenIterations}.
+     */
+    private static final class IncrementingAction implements ComputeAction,
+            KeyValueConsuming.ValueConsumer<KeyValueConsuming.Value>,
+            KeyValueConsuming.Value, BinaryContent {
+
+        private final ComputeContext ctx = new ComputeContext();
+        private final UnsafeBuffer scratch = new UnsafeBuffer(new byte[8]);
+        private long observed;
+        private boolean exists;
+
+        @Override
+        public ComputeContext context() {
+            return ctx;
+        }
+
+        @Override
+        public void execute() {
+            exists = false;
+            observed = 0L;
+            ctx.get(this);
+            scratch.putLong(0, observed + 1L);
+            ctx.put(scratch, 0, 8);
+        }
+
+        @Override
+        public KeyValueConsuming.Value putValue(final int valueSize) {
+            return valueSize == 8 ? this : null;
+        }
+
+        @Override
+        public BinaryContent valueContent() {
+            return this;
+        }
+
+        @Override
+        public AtomicBuffer buffer() {
+            return scratch;
+        }
+
+        @Override
+        public int offset() {
+            return 0;
+        }
+
+        @Override
+        public void apply() {
+            observed = scratch.getLong(0);
+            exists = true;
+        }
+    }
+
+    private static final class LongValueConsumer
+            implements KeyValueConsuming.ValueConsumer<KeyValueConsuming.Value>,
+                       KeyValueConsuming.Value, BinaryContent {
+        private final UnsafeBuffer buf = new UnsafeBuffer(new byte[8]);
+        long value;
+
+        @Override
+        public KeyValueConsuming.Value putValue(final int valueSize) {
+            return valueSize == 8 ? this : null;
+        }
+
+        @Override
+        public BinaryContent valueContent() {
+            return this;
+        }
+
+        @Override
+        public AtomicBuffer buffer() {
+            return buf;
+        }
+
+        @Override
+        public int offset() {
+            return 0;
+        }
+
+        @Override
+        public void apply() {
+            value = buf.getLong(0);
+        }
+    }
+
+    // Searches a small key space for a 4-byte key whose hash lands on the
+    // requested shuffled index. Used by the same-segment regression test.
+    private static AtomicBuffer findKeyHashingTo(final int wantedIdx, final int mask) {
+        final AtomicBuffer probe = new UnsafeBuffer(new byte[4]);
+        for (int v = 1; v < 1_000_000; v++) {
+            probe.putByte(0, (byte) (v >>> 24));
+            probe.putByte(1, (byte) (v >>> 16));
+            probe.putByte(2, (byte) (v >>> 8));
+            probe.putByte(3, (byte) v);
+            final int hash = KeyValueSupport.hash(probe, 0, 4);
+            if ((hash & mask) == wantedIdx) {
+                final AtomicBuffer key = new UnsafeBuffer(new byte[4]);
+                key.putByte(0, (byte) (v >>> 24));
+                key.putByte(1, (byte) (v >>> 16));
+                key.putByte(2, (byte) (v >>> 8));
+                key.putByte(3, (byte) v);
+                return key;
+            }
+        }
+        throw new AssertionError("no key found for index " + wantedIdx);
+    }
+
+    /** Two-key action that does nothing under the locks - used purely to drive
+     *  the canonical-ordering deadlock-free test. */
+    private static final class NoopTwoKeyAction implements TwoKeyComputeAction {
+        private final ComputeContext c1 = new ComputeContext();
+        private final ComputeContext c2 = new ComputeContext();
+
+        @Override
+        public ComputeContext key1Context() {
+            return c1;
+        }
+
+        @Override
+        public ComputeContext key2Context() {
+            return c2;
+        }
+
+        @Override
+        public void execute() {
+            // intentionally empty
         }
     }
 }

@@ -62,4 +62,51 @@ public interface KeyValues {
                 int keySize,
                 KeyValueConsuming.ValueConsumer<KeyValueConsuming.Value> consumer);
 
+    /**
+     * Atomically runs the given action against one key. The implementation
+     * may acquire whatever locking is appropriate (none, in the
+     * single-threaded case) before invoking the action's
+     * {@link ComputeAction#execute()}.
+     *
+     * <p>The action must not call any other {@link KeyValues} method during
+     * {@code execute()} - only the {@link ComputeContext} returned by
+     * {@link ComputeAction#context()} may be used.
+     *
+     * @param key       the buffer containing the key
+     * @param keyOffset the offset of the key within the buffer
+     * @param keySize   the size of the key in bytes
+     * @param action    the action to run atomically
+     */
+    void compute(AtomicBuffer key,
+                 int keyOffset,
+                 int keySize,
+                 ComputeAction action);
+
+    /**
+     * Atomically runs the given action against two keys. The implementation
+     * acquires whatever locks the two keys imply in a canonical order so
+     * that concurrent calls with the same two keys (in either order) cannot
+     * deadlock.
+     *
+     * <p>The action must not call any other {@link KeyValues} method during
+     * {@code execute()} - only the {@link ComputeContext}s returned by
+     * {@link TwoKeyComputeAction#key1Context()} and
+     * {@link TwoKeyComputeAction#key2Context()} may be used.
+     *
+     * @param key1       the buffer containing the first key
+     * @param key1Offset the offset of the first key within its buffer
+     * @param key1Size   the size of the first key in bytes
+     * @param key2       the buffer containing the second key
+     * @param key2Offset the offset of the second key within its buffer
+     * @param key2Size   the size of the second key in bytes
+     * @param action     the action to run atomically
+     */
+    void compute(AtomicBuffer key1,
+                 int key1Offset,
+                 int key1Size,
+                 AtomicBuffer key2,
+                 int key2Offset,
+                 int key2Size,
+                 TwoKeyComputeAction action);
+
 }
