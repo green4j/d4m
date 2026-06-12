@@ -25,15 +25,14 @@ package io.github.green4j.d4m.example.kv;
 
 import io.github.green4j.d4m.common.AtomicBuffer;
 import io.github.green4j.d4m.common.UnsafeBuffer;
-import io.github.green4j.d4m.example.ExampleSupport;
 import io.github.green4j.d4m.kv.ByteArrayValueConsumer;
 import io.github.green4j.d4m.kv.KeyListStorage;
 import io.github.green4j.d4m.kv.KeyListsWriter;
 import io.github.green4j.d4m.kv.KeyValueStorage;
 import io.github.green4j.d4m.kv.ListAccessor;
 
-import static io.github.green4j.d4m.example.ExampleSupport.BR;
-import static io.github.green4j.d4m.example.ExampleSupport.PERFORMANCE_RESULT_TITLE;
+import static io.github.green4j.d4m.example.kv.ExampleSupport.BR;
+import static io.github.green4j.d4m.example.kv.ExampleSupport.PERFORMANCE_RESULT_TITLE;
 
 /**
  * Demonstrates bulk usage of {@link KeyListStorage} over a
@@ -86,7 +85,8 @@ public class KeyListStorageUsage {
                 endLoadTime - startLoadTime);
 
         ExampleSupport.printKeyValueStorageStatistics(
-                kvStorage, builder,
+                kvStorage,
+                builder,
                 "[ Key List Storage Statistics ]",
                 () -> {
                     System.out.printf("%-28s: %13d%n", "Number of Key-Lists",

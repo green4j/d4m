@@ -21,7 +21,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-package io.github.green4j.d4m.example;
+package io.github.green4j.d4m.example.kv;
 
 import io.github.green4j.d4m.common.AtomicBuffer;
 import io.github.green4j.d4m.kv.KeyValueSegment;

@@ -25,7 +25,7 @@ package io.github.green4j.d4m.example.sequence;
 
 import io.github.green4j.d4m.common.AtomicBuffer;
 import io.github.green4j.d4m.common.UnsafeBuffer;
-import io.github.green4j.d4m.example.ExampleSupport;
+import io.github.green4j.d4m.example.kv.ExampleSupport;
 import io.github.green4j.d4m.sequence.Chunk;
 import io.github.green4j.d4m.sequence.ChunkSnapshot;
 import io.github.green4j.d4m.sequence.EvictionQueue;
