@@ -37,7 +37,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * thread-safe backing store (e.g. {@link KeyValueRing}), any number of writer
  * threads may call {@code append} on their own {@link KeyListsWriter}
  * instances concurrently - including against the same user key - and any
- * number of reader threads may call {@link #load} and iterate via their own
+ * number of reader threads may call {@link #list} and iterate via their own
  * {@link ListAccessor} instances. The implementation adds no locks of its
  * own; multi-writer atomicity comes from {@link KeyValues#compute} on the
  * backing store, which acquires segment locks in canonical order.
