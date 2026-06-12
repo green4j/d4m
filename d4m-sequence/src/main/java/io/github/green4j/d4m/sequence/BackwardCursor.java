@@ -164,7 +164,9 @@ public final class BackwardCursor {
                     forceRefresh();
                     return Long.MIN_VALUE;
                 }
-                final Chunk chunk = currentSnapshot.chunk(peekChunkIndex);
+                // Prefer the explicitly pinned chunk over a second plain read
+                // of the spine, which a concurrent drainSwaps may have swapped.
+                final Chunk chunk = peekPin.pinned;
                 final int entryCount = chunk.getEntryCount();
 
                 peekTraverseIndex = buildRawIndex(chunk, entryCount, peekTraverseIndex);
@@ -244,7 +246,9 @@ public final class BackwardCursor {
                 }
                 return delivered;
             }
-            final Chunk chunk = currentSnapshot.chunk(currentChunkIndex);
+            // Prefer the explicitly pinned chunk over a second plain read of
+            // the spine, which a concurrent drainSwaps may have swapped.
+            final Chunk chunk = pinState.pinned;
             final int entryCount = chunk.getEntryCount();
 
             if (traverseIndexChunk == null || traverseIndexChunk.buffer() != chunk.buffer()) {
@@ -396,7 +400,9 @@ public final class BackwardCursor {
                     forceRefresh();
                     return;
                 }
-                final Chunk chunk = forSnapshot.chunk(chunkIdx);
+                // Prefer the explicitly pinned chunk over a second plain read
+                // of the spine.
+                final Chunk chunk = reposPin.pinned;
                 final int entryCount = chunk.getEntryCount();
                 if (entryCount == 0) {
                     continue;

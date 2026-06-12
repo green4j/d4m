@@ -139,7 +139,9 @@ public final class ForwardCursor {
                     forceRefresh();
                     return Long.MAX_VALUE;
                 }
-                final Chunk chunk = currentSnapshot.chunk(currentChunkIndex);
+                // See nextInternal: prefer the explicitly pinned chunk over a
+                // second plain read of the spine, which could be stale.
+                final Chunk chunk = peekPin.pinned;
                 final int entryCount = chunk.getEntryCount();
                 final int dataWriteOffset = chunk.getDataWriteOffset();
 
@@ -222,7 +224,13 @@ public final class ForwardCursor {
                 return delivered;
             }
 
-            final Chunk chunk = currentSnapshot.chunk(currentChunkIndex);
+            // Use the pinned chunk rather than re-reading from the spine: a
+            // concurrent drainSwaps may have swapped spine[currentChunkIndex]
+            // between acquirePin and now, returning a chunk reference that
+            // differs from the one we explicitly verified-and-pinned. The pin
+            // holds the underlying chunk alive and synchronizes its state via
+            // its volatile epoch read inside acquirePin.
+            final Chunk chunk = pinState.pinned;
             int entryCount = chunk.getEntryCount();
             int dataWriteOffset = chunk.getDataWriteOffset();
 
@@ -356,7 +364,9 @@ public final class ForwardCursor {
                     forceRefresh();
                     return false;
                 }
-                final Chunk chunk = forSnapshot.chunk(chunkIdx);
+                // See nextInternal: prefer the explicitly pinned chunk over a
+                // second plain read of the spine.
+                final Chunk chunk = reposPin.pinned;
                 final int entryCount = chunk.getEntryCount();
                 if (entryCount == 0) {
                     continue;
