@@ -32,7 +32,7 @@ import org.HdrHistogram.Histogram;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 
-import static io.github.green4j.d4m.example.kv.ExampleSupport.PERFORMANCE_RESULT_TITLE;
+import static io.github.green4j.d4m.example.ExampleSupport.PERFORMANCE_RESULT_TITLE;
 import static io.github.green4j.d4m.example.sequence.SequenceExampleSupport.BR;
 import static io.github.green4j.d4m.example.sequence.SequenceExampleSupport.PAYLOAD_BYTES;
 import static io.github.green4j.d4m.example.sequence.SequenceExampleSupport.TOTAL_ENTRIES;

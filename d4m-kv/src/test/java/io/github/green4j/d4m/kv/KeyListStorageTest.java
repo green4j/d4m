@@ -47,7 +47,6 @@ class KeyListStorageTest {
 
     private AtomicBuffer keyBuffer;
     private AtomicBuffer valueBuffer;
-    private KeyValueRing ring;
     private KeyListStorage storage;
     private KeyListsWriter writer;
 
@@ -55,7 +54,7 @@ class KeyListStorageTest {
     void setUp() {
         keyBuffer = new UnsafeBuffer(new byte[256]);
         valueBuffer = new UnsafeBuffer(new byte[256]);
-        ring = new KeyValueRing(RING_SIZE, segmentFactory());
+        final KeyValueRing ring = new KeyValueRing(RING_SIZE, segmentFactory());
         storage = new KeyListStorage(ring);
         writer = storage.newWriter();
     }

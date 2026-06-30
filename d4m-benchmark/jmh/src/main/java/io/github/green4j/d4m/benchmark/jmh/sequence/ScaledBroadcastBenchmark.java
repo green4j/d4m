@@ -81,7 +81,7 @@ public class ScaledBroadcastBenchmark {
     @Param({"65536", "131072", "524288"})
     int chunkSize;
 
-    @Param({"1", "1000"})
+    @Param({"1", "1024"})
     int sequenceCount;
 
     @Param
@@ -91,6 +91,8 @@ public class ScaledBroadcastBenchmark {
     BenchmarkSupport.CursorType cursorType;
 
     Sequence[] sequences;
+    boolean appendOnly;
+    int sequenceMask;
 
     /**
      * Creates the shared sequences for the benchmark group.
@@ -100,6 +102,8 @@ public class ScaledBroadcastBenchmark {
         sequences = BenchmarkSupport.createSequences(
                 sequenceCount, chunkSize,
                 BenchmarkSupport.defaultMaxHeap(sequenceCount, chunkSize));
+        appendOnly = writeProfile == BenchmarkSupport.WriteProfile.APPEND_100;
+        sequenceMask = sequenceCount - 1;
     }
 
     /**
@@ -269,9 +273,13 @@ public class ScaledBroadcastBenchmark {
     }
 
     private void writeOne(final WriterState ws) {
-        final int si = (int) (ws.opCount % sequenceCount);
-        BenchmarkSupport.writeEntry(
-                sequences[si], ws.orderCounters, si, ws.opCount, writeProfile, ws.payload);
+        final int si = (int) (ws.opCount & sequenceMask);
+        if (appendOnly) {
+            BenchmarkSupport.appendOnlyEntry(sequences[si], ws.orderCounters, si, ws.payload);
+        } else {
+            BenchmarkSupport.writeEntry(
+                    sequences[si], ws.orderCounters, si, ws.opCount, writeProfile, ws.payload);
+        }
         ws.opCount++;
     }
 }

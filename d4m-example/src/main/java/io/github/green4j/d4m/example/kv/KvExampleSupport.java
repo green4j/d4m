@@ -23,7 +23,7 @@
  */
 package io.github.green4j.d4m.example.kv;
 
-import io.github.green4j.d4m.common.AtomicBuffer;
+import io.github.green4j.d4m.example.ExampleSupport;
 import io.github.green4j.d4m.kv.KeyValueSegment;
 import io.github.green4j.d4m.kv.KeyValueSegments;
 import io.github.green4j.d4m.kv.KeyValueStorage;
@@ -31,98 +31,7 @@ import io.github.green4j.d4m.kv.Tier;
 
 import static io.github.green4j.d4m.common.BitSupport.SIZE_OF_LONG;
 
-public abstract class ExampleSupport {
-    public static final long KILOBYTE = 1024L;
-    public static final long MEGABYTE = KILOBYTE * 1024L;
-    public static final long GIGABYTE = MEGABYTE * 1024L;
-    public static final long TERABYTE = GIGABYTE * 1024L;
-    public static final String BR = "-".repeat(45);
-
-    public static final String PERFORMANCE_RESULT_TITLE = String.format(
-            "%s%s%s",
-            "-".repeat(11), "[ Performance Results ]",
-            "-".repeat(11)
-    );
-
-    private static final double NANOS_PER_SECOND = 1_000_000_000.0;
-
-    public static String formatBytesToHumanReadable(final long bytes) {
-        if (bytes < KILOBYTE) {
-            return String.format("%d%s", bytes, "B");
-        }
-
-        final double value;
-        final String unit;
-
-        if (bytes >= TERABYTE) {
-            value = (double) bytes / TERABYTE;
-            unit = "T";
-        } else if (bytes >= GIGABYTE) {
-            value = (double) bytes / GIGABYTE;
-            unit = "G";
-        } else if (bytes >= MEGABYTE) {
-            value = (double) bytes / MEGABYTE;
-            unit = "M";
-        } else {
-            value = (double) bytes / KILOBYTE;
-            unit = "K";
-        }
-
-        return String.format("%.2f%s", value, unit);
-    }
-
-    /**
-     * Writes the given non-negative {@code int} as ASCII digits into the
-     * buffer starting at {@code offset}, and returns the number of bytes
-     * written. Used by examples that build per-iteration keys/values without
-     * allocating.
-     *
-     * @param buffer the target buffer
-     * @param offset the byte offset to write at
-     * @param value  the non-negative value to encode
-     * @return the number of bytes written
-     */
-    public static int putIntAsAscii(final AtomicBuffer buffer,
-                                    final int offset,
-                                    final int value) {
-        if (value == 0) {
-            buffer.putByte(offset, (byte) '0');
-            return 1;
-        }
-
-        int temp = value;
-        int digits = 0;
-        while (temp > 0) {
-            digits++;
-            temp /= 10;
-        }
-
-        int pos = offset + digits - 1;
-        int remainder = value;
-        while (remainder > 0) {
-            buffer.putByte(pos--, (byte) ('0' + (remainder % 10)));
-            remainder /= 10;
-        }
-
-        return digits;
-    }
-
-    /**
-     * Prints one row of throughput metrics ({@code label : ops per sec}).
-     * Caller is responsible for printing the surrounding title and any
-     * additional rows.
-     *
-     * @param label        the metric name (e.g. {@code "PUTs"})
-     * @param count        the number of measured operations
-     * @param elapsedNanos the elapsed time, in nanoseconds, over which they
-     *                     ran
-     */
-    public static void printPerformanceMetric(final String label,
-                                              final long count,
-                                              final long elapsedNanos) {
-        final double opsPerSecond = count / (elapsedNanos / NANOS_PER_SECOND);
-        System.out.printf("%-2s%-8s: %12.4f per sec%n", " ", label, opsPerSecond);
-    }
+public abstract class KvExampleSupport extends ExampleSupport {
 
     /**
      * Prints a tabular dump of the {@link KeyValueStorage}'s underlying ring
@@ -232,6 +141,6 @@ public abstract class ExampleSupport {
         System.out.println(BR);
     }
 
-    protected ExampleSupport() {
+    protected KvExampleSupport() {
     }
 }

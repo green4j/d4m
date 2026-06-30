@@ -237,7 +237,7 @@ class SingleThreadedKeyValueRingTest {
             int nonEmptyTierCount = 0;
             for (int i = 0; i < ring.numberOfSegments(); i++) {
                 final KeyValueSegment seg = ring.getSegment(i);
-                if (seg.size() > 0 && seg.getTier(0).size() > 0) {
+                if (seg.size() > 0 && !seg.getTier(0).isEmpty()) {
                     nonEmptyTierCount++;
                 }
             }

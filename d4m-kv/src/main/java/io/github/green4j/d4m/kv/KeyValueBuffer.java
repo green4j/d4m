@@ -701,7 +701,7 @@ public class KeyValueBuffer implements
             extends AbstractWriter implements KeyValueConsuming.Value {
         int index;
 
-        protected void start(final int index) {
+        private void start(final int index) {
             final long firstLong = buffer.getLong(index);
             final long secondLong = buffer.getLong(index + SIZE_OF_LONG);
 

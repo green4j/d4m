@@ -28,7 +28,7 @@ package io.github.green4j.d4m.sequence;
  * Immutable-once-published snapshot of the chunk list.
  *
  * <p>Uses a <b>segmented spine</b> - an array of fixed-size arrays
- * ({@code Chunk[][]} + {@code long[][]}) - instead of flat arrays.
+ * ({@code Chunk[][]} + {@code long[][]}).
  * This eliminates bulk copies when the writer appends new chunks:
  * only the small spine pointer array is ever copied (when it needs
  * to grow), while existing segment arrays are shared as-is.</p>

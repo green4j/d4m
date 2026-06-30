@@ -222,7 +222,7 @@ class KeyValueRingTest {
             int nonEmptyTierCount = 0;
             for (int i = 0; i < ring.numberOfSegments(); i++) {
                 final KeyValueSegment seg = ring.getSegment(i);
-                if (seg.size() > 0 && seg.getTier(0).size() > 0) {
+                if (seg.size() > 0 && !seg.getTier(0).isEmpty()) {
                     nonEmptyTierCount++;
                 }
             }
@@ -322,7 +322,7 @@ class KeyValueRingTest {
             assertEquals(2, numberOfSegments);
             final java.util.concurrent.locks.StampedLock baseLock = ring.getLock(0);
             int sharedShuffledIndex = -1;
-            for (int i = 0 + numberOfSegments; i < ring.size(); i += numberOfSegments) {
+            for (int i = numberOfSegments; i < ring.size(); i += numberOfSegments) {
                 if (ring.getLock(i) == baseLock) {
                     sharedShuffledIndex = i;
                     break;
@@ -341,7 +341,7 @@ class KeyValueRingTest {
         }
 
         @Test
-        void twoKeyComputeNoDeadlockUnderCrossingAcquire() throws Exception {
+        void twoKeyComputeNoDeadlockUnderCrossingAcquire() {
             // Two threads request locks on the same two segments in opposite order
             // via compute(keyA, keyB) and compute(keyB, keyA). Without canonical
             // ordering this deadlocks; with it the run completes promptly.

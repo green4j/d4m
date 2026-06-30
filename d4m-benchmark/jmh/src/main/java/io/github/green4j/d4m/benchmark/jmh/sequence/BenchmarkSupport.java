@@ -161,6 +161,25 @@ public final class BenchmarkSupport {
     }
 
     /**
+     * Append-only fast path used by the write benchmarks when
+     * {@code writeProfile == APPEND_100}. Strips the profile-decision
+     * branch and the {@code appendPercent} field load that
+     * {@link #writeEntry} carries for the mixed profiles.
+     *
+     * @param seq            the target sequence
+     * @param orderCounters  per-sequence order counters; the entry at
+     *                       {@code sequenceIndex} is post-incremented
+     * @param sequenceIndex  the index into {@code orderCounters}
+     * @param payload        the payload buffer to append
+     */
+    static void appendOnlyEntry(final Sequence seq,
+                                final long[] orderCounters,
+                                final int sequenceIndex,
+                                final AtomicBuffer payload) {
+        seq.append(orderCounters[sequenceIndex]++, payload, 0, PAYLOAD_SIZE);
+    }
+
+    /**
      * Pre-populates all sequences with the given number of entries per sequence.
      *
      * @param sequences        the sequences to populate

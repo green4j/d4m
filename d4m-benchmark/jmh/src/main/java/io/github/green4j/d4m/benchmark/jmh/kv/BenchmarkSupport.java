@@ -40,15 +40,44 @@ public final class BenchmarkSupport {
     public static final int KEY_SIZE = 32;
     public static final int VALUE_SIZE = 200;
 
+    /**
+     * Pre-built key count for the noEviction read / write / concurrent
+     * benchmarks. Power-of-two so the hot loop can index with AND instead
+     * of {@code %}.
+     */
+    public static final int KEY_ARRAY_SIZE = 131_072;
+
+    /** Mask paired with {@link #KEY_ARRAY_SIZE} for index lookups. */
+    public static final int KEY_INDEX_MASK = KEY_ARRAY_SIZE - 1;
+
+    /**
+     * Pre-built key count for the {@code evict30} read benchmarks. Sized so
+     * that, with {@link #RING_SIZE} segments and {@link #ENTRY_SIZE_ESTIMATE}
+     * bytes per entry, the working set per segment (~60 MB) is clearly
+     * larger than the Apple M1 Pro 24 MB system-level cache - the reader
+     * therefore takes real CPU-cache misses on top of mmap accesses, which
+     * is the realistic shape of a workload that has spilled past the hot
+     * tier. Power-of-two so the hot loop still indexes with an AND mask.
+     */
+    public static final int EVICT_KEY_ARRAY_SIZE = 2 * 1024 * 1024;
+
+    /** Mask paired with {@link #EVICT_KEY_ARRAY_SIZE} for index lookups. */
+    public static final int EVICT_KEY_INDEX_MASK = EVICT_KEY_ARRAY_SIZE - 1;
+
     static final int RING_SIZE = 8;
     static final int SHUFFLE_MULTIPLIER = 16;
     static final int INITIAL_CAPACITY = 65536;
 
     static final int ENTRY_SIZE_ESTIMATE = 240;
-    static final int WRITE_CYCLE_SIZE = 500_000;
 
     static final int HOT_TIER_NO_EVICTION = 128 * 1024 * 1024;
-    static final int HOT_TIER_EVICT_WRITE = 2 * 1024 * 1024;
+    /**
+     * Per-segment hot tier for the {@code evict30} profile. Sized to exceed
+     * the Apple M1 Pro 24 MB system-level cache so the writer's / reader's
+     * hot working set is cache-cold and takes real CPU-cache misses, while
+     * still forcing continuous eviction to mmap once the tier fills.
+     */
+    static final int HOT_TIER_EVICT = 32 * 1024 * 1024;
     static final int MMAP_TIER_SIZE = 256 * 1024 * 1024;
 
     private BenchmarkSupport() {
@@ -75,54 +104,28 @@ public final class BenchmarkSupport {
     }
 
     /**
-     * Creates a {@link KeyValueRing} with a hot tier sized so that approximately
-     * 30% of the given population spills to mmap tiers.
+     * Creates a {@link KeyValueRing} with a {@link #HOT_TIER_EVICT} hot
+     * tier per segment - large enough that the hot working set is
+     * cache-cold (so the writer/reader takes real CPU-cache misses), yet
+     * small enough to force continuous eviction to mmap once it fills.
+     * Use for the {@code evict30} profile.
      *
-     * @param totalPopulation the total number of entries to be stored
-     * @return a ring configured for 30%-eviction benchmarks
+     * @return a ring configured for the evict30 profile
      */
-    static KeyValueRing createRingEvict30(final int totalPopulation) {
-        return createRingEvict30(RING_SIZE, totalPopulation);
+    static KeyValueRing createRingEvict30() {
+        return createRing(RING_SIZE, HOT_TIER_EVICT);
     }
 
     /**
-     * Creates a {@link KeyValueRing} with a hot tier sized so that approximately
-     * 30% of the given population spills to mmap tiers, using the specified
-     * number of segments.
-     *
-     * @param ringSize        the number of ring segments
-     * @param totalPopulation the total number of entries to be stored
-     * @return a ring configured for 30%-eviction benchmarks
-     */
-    static KeyValueRing createRingEvict30(final int ringSize,
-                                          final int totalPopulation) {
-        final int entriesPerSegment = totalPopulation / ringSize;
-        int hotSize = (int) ((long) entriesPerSegment * ENTRY_SIZE_ESTIMATE * 7 / 10);
-        hotSize = Math.max(hotSize, 64 * 1024);
-        hotSize = Integer.highestOneBit(hotSize);
-        return createRing(ringSize, hotSize);
-    }
-
-    /**
-     * Creates a {@link KeyValueRing} with a fixed small hot tier
-     * suitable for continuous-write eviction benchmarks.
-     *
-     * @return a ring configured for write-eviction benchmarks
-     */
-    static KeyValueRing createRingEvictWrite() {
-        return createRing(RING_SIZE, HOT_TIER_EVICT_WRITE);
-    }
-
-    /**
-     * Creates a {@link KeyValueRing} with a fixed small hot tier
-     * suitable for continuous-write eviction benchmarks, using the
-     * specified number of segments.
+     * Creates a {@link KeyValueRing} with a {@link #HOT_TIER_EVICT} hot
+     * tier per segment, using the specified number of segments. Use for
+     * the {@code evict30} profile.
      *
      * @param ringSize the number of ring segments
-     * @return a ring configured for write-eviction benchmarks
+     * @return a ring configured for the evict30 profile
      */
-    static KeyValueRing createRingEvictWrite(final int ringSize) {
-        return createRing(ringSize, HOT_TIER_EVICT_WRITE);
+    static KeyValueRing createRingEvict30(final int ringSize) {
+        return createRing(ringSize, HOT_TIER_EVICT);
     }
 
     /**
@@ -204,6 +207,64 @@ public final class BenchmarkSupport {
     }
 
     /**
+     * Writes just the trailing ASCII digits of {@code seq} into the buffer,
+     * starting from byte {@code KEY_SIZE - 1} and walking left. Assumes the
+     * buffer was previously filled with {@code '0'} and that {@code seq} only
+     * ever grows (cycles back would leave leftover high-order digits, but
+     * the eviction-write benchmarks use strictly increasing sequence
+     * numbers). Much cheaper than {@link #writeKeyInPlace} which also
+     * rewrites the leading padding every call.
+     *
+     * @param keyBuf the pre-allocated key buffer (must have leading '0' padding)
+     * @param seq    the strictly monotonic sequence number to encode
+     */
+    static void writeKeyTail(final UnsafeBuffer keyBuf, final long seq) {
+        long val = seq;
+        int pos = KEY_SIZE - 1;
+        do {
+            keyBuf.putByte(pos--, (byte) ('0' + (int) (val % 10)));
+            val /= 10;
+        } while (val > 0);
+    }
+
+    /**
+     * Builds {@link #KEY_ARRAY_SIZE} pre-encoded, immutable key buffers.
+     * Each key is a {@link #KEY_SIZE}-byte right-aligned ASCII number
+     * (key {@code i} encodes {@code i}). Benchmarks index into this array
+     * via {@code seq & KEY_INDEX_MASK} in the hot loop so the measured op
+     * is just the storage call - no per-op ASCII conversion or modulo.
+     *
+     * @return an array of {@link #KEY_ARRAY_SIZE} pre-encoded key buffers
+     */
+    static UnsafeBuffer[] createKeyArray() {
+        return createKeyArray(KEY_ARRAY_SIZE);
+    }
+
+    /**
+     * Builds {@link #EVICT_KEY_ARRAY_SIZE} pre-encoded, immutable key
+     * buffers for the {@code evict30} read profile. Same encoding and
+     * hot-loop shape as {@link #createKeyArray()} but with a much larger
+     * working set so the read benchmarks take real CPU-cache misses on
+     * top of the mmap accesses.
+     *
+     * @return an array of {@link #EVICT_KEY_ARRAY_SIZE} pre-encoded key buffers
+     */
+    static UnsafeBuffer[] createEvictKeyArray() {
+        return createKeyArray(EVICT_KEY_ARRAY_SIZE);
+    }
+
+    private static UnsafeBuffer[] createKeyArray(final int count) {
+        final UnsafeBuffer[] keys = new UnsafeBuffer[count];
+        for (int i = 0; i < count; i++) {
+            final byte[] bytes = new byte[KEY_SIZE];
+            Arrays.fill(bytes, (byte) '0');
+            keys[i] = new UnsafeBuffer(bytes);
+            writeKeyInPlace(keys[i], i);
+        }
+        return keys;
+    }
+
+    /**
      * Creates a reusable value buffer of {@link #VALUE_SIZE} bytes.
      *
      * @return a 200-byte value buffer
@@ -216,20 +277,4 @@ public final class BenchmarkSupport {
         return new UnsafeBuffer(data);
     }
 
-    /**
-     * Populates the ring with {@code count} key-value pairs using
-     * pre-allocated, reusable buffers.
-     *
-     * @param ring  the ring to populate
-     * @param count the number of entries to insert
-     */
-    static void populate(final KeyValueRing ring, final int count) {
-        final UnsafeBuffer keyBuf = createKeyBuffer();
-        final UnsafeBuffer valueBuf = createValueBuffer();
-        for (int i = 0; i < count; i++) {
-            writeKeyInPlace(keyBuf, i);
-            valueBuf.putLong(0, i);
-            ring.put(keyBuf, 0, KEY_SIZE, valueBuf, 0, VALUE_SIZE);
-        }
-    }
 }

@@ -66,7 +66,7 @@ public class WriteBenchmark {
     @Param({"65536", "131072", "524288"})
     int chunkSize;
 
-    @Param({"1", "1000"})
+    @Param({"1", "1024"})
     int sequenceCount;
 
     @Param
@@ -76,9 +76,16 @@ public class WriteBenchmark {
     private long[] orderCounters;
     private AtomicBuffer payload;
     private long opCount;
+    private boolean appendOnly;
+    private int sequenceMask;
 
     /**
      * Initializes sequences, order counters, and the payload buffer.
+     * Captures whether the chosen {@code writeProfile} is the pure-append
+     * fast path so the hot loop can branch once on a final field, and a
+     * {@code sequenceMask = sequenceCount - 1} so the round-robin index
+     * is a single AND (valid because {@code sequenceCount} is a power of
+     * two).
      */
     @Setup(Level.Trial)
     public void setup() {
@@ -88,16 +95,24 @@ public class WriteBenchmark {
         orderCounters = new long[sequenceCount];
         payload = BenchmarkSupport.createPayload();
         opCount = 0;
+        appendOnly = writeProfile == BenchmarkSupport.WriteProfile.APPEND_100;
+        sequenceMask = sequenceCount - 1;
     }
 
     /**
-     * Writes one entry to the next sequence in round-robin order.
+     * Writes one entry to the next sequence in round-robin order. For
+     * the {@code APPEND_100} profile the hot loop uses a stripped-down
+     * helper that skips the profile-decision branch.
      */
     @Benchmark
     public void write() {
-        final int si = (int) (opCount % sequenceCount);
-        BenchmarkSupport.writeEntry(
-                sequences[si], orderCounters, si, opCount, writeProfile, payload);
+        final int si = (int) (opCount & sequenceMask);
+        if (appendOnly) {
+            BenchmarkSupport.appendOnlyEntry(sequences[si], orderCounters, si, payload);
+        } else {
+            BenchmarkSupport.writeEntry(
+                    sequences[si], orderCounters, si, opCount, writeProfile, payload);
+        }
         opCount++;
     }
 }

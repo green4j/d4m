@@ -42,12 +42,11 @@ class CursorRepositionTest {
     private static final int CHUNK_SIZE = 1024;
     private static final int MSG_PAYLOAD = 8;
 
-    private TestHarness harness;
     private Sequence sequence;
 
     @BeforeEach
     void setUp() {
-        harness = new TestHarness(CHUNK_SIZE);
+        final TestHarness harness = new TestHarness(CHUNK_SIZE);
         sequence = harness.createSequence("repos");
     }
 

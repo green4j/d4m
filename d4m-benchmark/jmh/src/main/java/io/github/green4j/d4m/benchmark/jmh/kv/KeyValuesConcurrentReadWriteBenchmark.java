@@ -52,8 +52,12 @@ import java.util.concurrent.atomic.AtomicLong;
  * <ul>
  *   <li>{@code noEviction} - large hot tier; the writer cycles keys within
  *       a pre-populated range so no eviction occurs.</li>
- *   <li>{@code evict30} - small hot tier; the writer inserts unique keys
- *       continuously, causing constant eviction to mmap tiers.</li>
+ *   <li>{@code evict30} - 32 MB hot tier per segment (&gt; M1 Pro SLC); the
+ *       writer inserts unique keys continuously, so the hot tier fills
+ *       and entries cascade to mmap. The hot working set is cache-cold,
+ *       so writers and readers take real CPU-cache misses on top of mmap
+ *       traffic - the realistic shape of a workload that has outgrown
+ *       the hot tier.</li>
  * </ul>
  *
  * <p>Two benchmark groups:
@@ -64,7 +68,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p>Run with:
  * <pre>
- *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="ConcurrentReadWriteBenchmark"
+ *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="KeyValuesConcurrentReadWriteBenchmark"
  * </pre>
  */
 @BenchmarkMode(Mode.Throughput)
@@ -77,9 +81,7 @@ import java.util.concurrent.atomic.AtomicLong;
         "-Xmx4g", "-Xms4g"
 })
 @State(Scope.Group)
-public class ConcurrentReadWriteBenchmark {
-
-    private static final int PREPOPULATE = 10_000;
+public class KeyValuesConcurrentReadWriteBenchmark {
 
     @Param({"noEviction", "evict30"})
     String eviction;
@@ -88,152 +90,141 @@ public class ConcurrentReadWriteBenchmark {
     int segments;
 
     KeyValueRing ring;
+    UnsafeBuffer[] keys;            // populated for noEviction (shared, immutable)
+    UnsafeBuffer value;             // shared, immutable
+    boolean usingPreBuiltKeys;
     final AtomicLong written = new AtomicLong();
-    long keyMod;
 
     /**
      * Creates and pre-populates the shared ring.
      * In {@code noEviction} mode the ring is pre-populated with
-     * {@link BenchmarkSupport#WRITE_CYCLE_SIZE} entries and the writer
-     * cycles within that range. In {@code evict30} mode a small
-     * hot tier is used and only a baseline set is pre-populated.
+     * {@link BenchmarkSupport#KEY_ARRAY_SIZE} entries and reader/writer
+     * cycle within that range. In {@code evict30} mode the writer keeps
+     * producing fresh unique keys; the reader gates on {@link #written}
+     * so it never indexes ahead of the writer.
      */
     @Setup(Level.Trial)
     public void setup() {
-        if ("noEviction".equals(eviction)) {
+        value = BenchmarkSupport.createValueBuffer();
+        usingPreBuiltKeys = "noEviction".equals(eviction);
+        if (usingPreBuiltKeys) {
             ring = BenchmarkSupport.createRingNoEviction(segments);
-            BenchmarkSupport.populate(ring, BenchmarkSupport.WRITE_CYCLE_SIZE);
-            written.set(BenchmarkSupport.WRITE_CYCLE_SIZE);
-            keyMod = BenchmarkSupport.WRITE_CYCLE_SIZE;
-        } else {
-            ring = BenchmarkSupport.createRingEvictWrite(segments);
-            BenchmarkSupport.populate(ring, PREPOPULATE);
-            written.set(PREPOPULATE);
-            keyMod = Long.MAX_VALUE;
+            keys = BenchmarkSupport.createKeyArray();
+            KeyValuesBenchmarkSupport.populate(
+                    ring, keys, value, BenchmarkSupport.KEY_ARRAY_SIZE);
+            written.set(BenchmarkSupport.KEY_ARRAY_SIZE);
+        } else { // evict30
+            ring = BenchmarkSupport.createRingEvict30(segments);
         }
     }
 
     /**
-     * Thread-local writer state holding reusable key/value buffers and a sequence counter.
+     * Thread-local writer state. For the eviction profiles each writer
+     * holds its own {@code uniqueKeyBuf} so {@code writeKeyTail}
+     * doesn't race with other writers.
      */
     @State(Scope.Thread)
     public static class WriterState {
-        UnsafeBuffer keyBuf;
-        UnsafeBuffer valueBuf;
+        UnsafeBuffer uniqueKeyBuf;
         long seq;
 
-        /**
-         * Initializes buffers and starts the sequence counter
-         * above the pre-populated range.
-         *
-         * @param parent the enclosing benchmark providing the ring
-         */
         @Setup(Level.Trial)
-        public void setup(final ConcurrentReadWriteBenchmark parent) {
-            keyBuf = BenchmarkSupport.createKeyBuffer();
-            valueBuf = BenchmarkSupport.createValueBuffer();
+        public void setup(final KeyValuesConcurrentReadWriteBenchmark parent) {
+            if (!parent.usingPreBuiltKeys) {
+                uniqueKeyBuf = BenchmarkSupport.createKeyBuffer();
+            }
             seq = parent.written.get();
         }
     }
 
     /**
-     * Thread-local reader state holding a reusable key buffer, value consumer,
-     * and read counter.
+     * Thread-local reader state. The {@code lookupKeyBuf} is allocated only
+     * for the eviction-profile paths so the reader can encode the writer's
+     * trailing-digit key to look it up.
      */
     @State(Scope.Thread)
     public static class ReaderState {
-        UnsafeBuffer keyBuf;
         ByteArrayValueConsumer consumer;
+        UnsafeBuffer lookupKeyBuf;
         long readSeq;
 
-        /**
-         * Initializes the key buffer and consumer.
-         */
         @Setup(Level.Trial)
-        public void setup() {
-            keyBuf = BenchmarkSupport.createKeyBuffer();
+        public void setup(final KeyValuesConcurrentReadWriteBenchmark parent) {
             consumer = new ByteArrayValueConsumer();
+            if (!parent.usingPreBuiltKeys) {
+                lookupKeyBuf = BenchmarkSupport.createKeyBuffer();
+            }
             readSeq = 0;
         }
     }
 
+    private void doWrite(final WriterState ws) {
+        final UnsafeBuffer k;
+        if (usingPreBuiltKeys) {
+            k = keys[(int) (ws.seq & BenchmarkSupport.KEY_INDEX_MASK)];
+        } else {
+            BenchmarkSupport.writeKeyTail(ws.uniqueKeyBuf, ws.seq);
+            k = ws.uniqueKeyBuf;
+        }
+        ring.put(k, 0, BenchmarkSupport.KEY_SIZE,
+                value, 0, BenchmarkSupport.VALUE_SIZE);
+        written.lazySet(ws.seq);
+        ws.seq++;
+    }
+
+    private boolean doRead(final ReaderState rs) {
+        final UnsafeBuffer k;
+        if (usingPreBuiltKeys) {
+            k = keys[(int) (rs.readSeq & BenchmarkSupport.KEY_INDEX_MASK)];
+        } else {
+            // Same trailing-digit encoding as the writer; bounded by what's
+            // been published so the reader never looks past the writer.
+            final long range = Math.max(1, written.get());
+            BenchmarkSupport.writeKeyTail(rs.lookupKeyBuf, rs.readSeq % range);
+            k = rs.lookupKeyBuf;
+        }
+        final boolean found = ring.get(k, 0, BenchmarkSupport.KEY_SIZE, rs.consumer);
+        rs.readSeq++;
+        return found;
+    }
+
     /**
-     * Writer side for the 1W+1R group: puts one key-value pair.
-     * In {@code noEviction} mode the key cycles; in {@code evict30}
-     * mode a new unique key is used.
-     *
-     * @param ws thread-local writer state
+     * Writer side for the 1W+1R group.
      */
     @Benchmark
     @Group("rw1")
     @GroupThreads(1)
     public void rw1Write(final WriterState ws) {
-        final long keyId = ws.seq % keyMod;
-        BenchmarkSupport.writeKeyInPlace(ws.keyBuf, keyId);
-        ws.valueBuf.putLong(0, ws.seq);
-        ring.put(ws.keyBuf, 0, BenchmarkSupport.KEY_SIZE,
-                ws.valueBuf, 0, BenchmarkSupport.VALUE_SIZE);
-        written.lazySet(ws.seq);
-        ws.seq++;
+        doWrite(ws);
     }
 
     /**
-     * Reader side for the 1W+1R group: gets one value by key from the
-     * readable range.
-     *
-     * @param rs thread-local reader state
-     * @return whether a value was found for the key
+     * Reader side for the 1W+1R group.
      */
     @Benchmark
     @Group("rw1")
     @GroupThreads(1)
     public boolean rw1Read(final ReaderState rs) {
-        final long range = Math.min(written.get(), keyMod);
-        final long keyId = rs.readSeq % range;
-        BenchmarkSupport.writeKeyInPlace(rs.keyBuf, keyId);
-        final boolean found = ring.get(
-                rs.keyBuf, 0, BenchmarkSupport.KEY_SIZE, rs.consumer);
-        rs.readSeq++;
-        return found;
+        return doRead(rs);
     }
 
     /**
-     * Writer side for the 1W+10R group: puts one key-value pair.
-     * In {@code noEviction} mode the key cycles; in {@code evict30}
-     * mode a new unique key is used.
-     *
-     * @param ws thread-local writer state
+     * Writer side for the 1W+10R group.
      */
     @Benchmark
     @Group("rw10")
     @GroupThreads(1)
     public void rw10Write(final WriterState ws) {
-        final long keyId = ws.seq % keyMod;
-        BenchmarkSupport.writeKeyInPlace(ws.keyBuf, keyId);
-        ws.valueBuf.putLong(0, ws.seq);
-        ring.put(ws.keyBuf, 0, BenchmarkSupport.KEY_SIZE,
-                ws.valueBuf, 0, BenchmarkSupport.VALUE_SIZE);
-        written.lazySet(ws.seq);
-        ws.seq++;
+        doWrite(ws);
     }
 
     /**
-     * Reader side for the 1W+10R group: gets one value by key from the
-     * readable range.
-     *
-     * @param rs thread-local reader state
-     * @return whether a value was found for the key
+     * Reader side for the 1W+10R group.
      */
     @Benchmark
     @Group("rw10")
     @GroupThreads(10)
     public boolean rw10Read(final ReaderState rs) {
-        final long range = Math.min(written.get(), keyMod);
-        final long keyId = rs.readSeq % range;
-        BenchmarkSupport.writeKeyInPlace(rs.keyBuf, keyId);
-        final boolean found = ring.get(
-                rs.keyBuf, 0, BenchmarkSupport.KEY_SIZE, rs.consumer);
-        rs.readSeq++;
-        return found;
+        return doRead(rs);
     }
 }

@@ -74,7 +74,7 @@ public class HistoricalReadBenchmark {
     @Param({"65536", "131072", "524288"})
     int chunkSize;
 
-    @Param({"1", "1000"})
+    @Param({"1", "1024"})
     int sequenceCount;
 
     @Param

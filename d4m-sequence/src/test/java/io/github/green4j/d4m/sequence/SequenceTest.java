@@ -47,12 +47,11 @@ class SequenceTest {
     // EntrySize(8) = align8(24+8) = 32
     private static final int MSG_TOTAL = Chunk.entrySize(MSG_PAYLOAD);
 
-    private TestHarness harness;
     private Sequence sequence;
 
     @BeforeEach
     void setUp() {
-        harness = new TestHarness(CHUNK_SIZE);
+        final TestHarness harness = new TestHarness(CHUNK_SIZE);
         sequence = harness.createSequence("test-sequence");
     }
 

@@ -48,14 +48,17 @@ import java.util.concurrent.TimeUnit;
  * <p>Two eviction profiles:
  * <ul>
  *   <li>{@code noEviction} - all pre-populated data resides in the hot tier.</li>
- *   <li>{@code evict30} - the hot tier is sized so that approximately 30%
- *       of the pre-populated data spills to mmap tiers. Reads hit both
- *       hot and mmap storage.</li>
+ *   <li>{@code evict30} - uses the larger pre-population
+ *       ({@link BenchmarkSupport#EVICT_KEY_ARRAY_SIZE}) so the working set
+ *       per segment exceeds CPU cache, with a 32 MB hot tier that still
+ *       spills ~30 % of data to mmap. The reader therefore takes real
+ *       CPU-cache misses on top of mmap accesses - the realistic shape
+ *       of a workload that has spilled past the hot tier.</li>
  * </ul>
  *
  * <p>Run with:
  * <pre>
- *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="ReadBenchmark"
+ *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="KeyValuesReadBenchmark"
  * </pre>
  */
 @BenchmarkMode(Mode.Throughput)
@@ -69,47 +72,54 @@ import java.util.concurrent.TimeUnit;
 })
 @Threads(1)
 @State(Scope.Thread)
-public class ReadBenchmark {
+public class KeyValuesReadBenchmark {
 
     @Param({"noEviction", "evict30"})
     String eviction;
 
-    @Param({"100000"})
-    int populationSize;
-
     private KeyValueRing ring;
-    private UnsafeBuffer keyBuf;
+    private UnsafeBuffer[] keys;
+    private int keyIndexMask;
     private ByteArrayValueConsumer consumer;
     private long seq;
 
     /**
-     * Creates and pre-populates the ring. In {@code noEviction} mode
-     * a large hot tier holds all data. In {@code evict30} mode the hot
-     * tier is sized to hold approximately 70% of the population.
+     * Creates and pre-populates the ring. {@code noEviction} pre-populates
+     * {@link BenchmarkSupport#KEY_ARRAY_SIZE} keys into the large no-eviction
+     * hot tier. {@code evict30} pre-populates
+     * {@link BenchmarkSupport#EVICT_KEY_ARRAY_SIZE} keys so the working
+     * set per segment exceeds CPU cache and the 32 MB hot tier spills
+     * ~30 % of entries to mmap.
      */
     @Setup(Level.Trial)
     public void setup() {
+        final UnsafeBuffer value = BenchmarkSupport.createValueBuffer();
+        final int population;
         if ("noEviction".equals(eviction)) {
             ring = BenchmarkSupport.createRingNoEviction();
-        } else {
-            ring = BenchmarkSupport.createRingEvict30(populationSize);
+            keys = BenchmarkSupport.createKeyArray();
+            population = BenchmarkSupport.KEY_ARRAY_SIZE;
+            keyIndexMask = BenchmarkSupport.KEY_INDEX_MASK;
+        } else { // evict30
+            ring = BenchmarkSupport.createRingEvict30();
+            keys = BenchmarkSupport.createEvictKeyArray();
+            population = BenchmarkSupport.EVICT_KEY_ARRAY_SIZE;
+            keyIndexMask = BenchmarkSupport.EVICT_KEY_INDEX_MASK;
         }
-        BenchmarkSupport.populate(ring, populationSize);
-        keyBuf = BenchmarkSupport.createKeyBuffer();
+        KeyValuesBenchmarkSupport.populate(ring, keys, value, population);
         consumer = new ByteArrayValueConsumer();
         seq = 0;
     }
 
     /**
-     * Gets one value by key. Keys cycle through the pre-populated range.
+     * Gets one value by key - hot loop is array index plus the storage call.
      *
      * @return whether a value was found for the key
      */
     @Benchmark
     public boolean get() {
-        final long keyId = seq % populationSize;
-        BenchmarkSupport.writeKeyInPlace(keyBuf, keyId);
-        final boolean found = ring.get(keyBuf, 0, BenchmarkSupport.KEY_SIZE, consumer);
+        final UnsafeBuffer k = keys[(int) (seq & keyIndexMask)];
+        final boolean found = ring.get(k, 0, BenchmarkSupport.KEY_SIZE, consumer);
         seq++;
         return found;
     }

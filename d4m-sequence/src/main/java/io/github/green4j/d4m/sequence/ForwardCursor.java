@@ -234,6 +234,7 @@ public final class ForwardCursor {
             int entryCount = chunk.getEntryCount();
             int dataWriteOffset = chunk.getDataWriteOffset();
 
+            boolean sealed = false;
             while (true) { // re-read loop
                 while (currentEntryIndex < entryCount && delivered < maxEntryCount) {
                     if (currentEntryOffset >= dataWriteOffset) {
@@ -269,20 +270,31 @@ public final class ForwardCursor {
                     currentEntryIndex++;
                 }
 
-                // Re-read entryCount on unsealed tail for realtime tailing
-                if (currentEntryIndex >= entryCount
-                        && currentChunkIndex == currentSnapshot.size() - 1 && !chunk.isSealed()) {
-                    final int mc2 = chunk.getEntryCount();
-                    if (mc2 > entryCount) {
-                        entryCount = mc2;
-                        dataWriteOffset = chunk.getDataWriteOffset();
-                        continue; // re-enter inner
-                    }
+                if (currentEntryIndex < entryCount) {
+                    // Inner exit came from currentEntryOffset >= dataWriteOffset
+                    // (or batch full). Don't re-read; the caller will retry.
+                    break;
+                }
+
+                // Exhausted by count. Read isSealed BEFORE the final
+                // getEntryCount: the acquire on a true seal observation
+                // makes the writer's last putEntryCountOrdered (released
+                // before the seal store) visible to the subsequent
+                // entryCount read, so we never advance past a chunk whose
+                // final batch of entries was committed between our previous
+                // entryCount read and the seal.
+                if (!sealed) {
+                    sealed = chunk.isSealed();
+                }
+                final int mc2 = chunk.getEntryCount();
+                if (mc2 > entryCount) {
+                    entryCount = mc2;
+                    dataWriteOffset = chunk.getDataWriteOffset();
+                    continue; // re-enter inner
                 }
                 break; // done with chunk
             }
 
-            final boolean sealed = chunk.isSealed();
             if (currentEntryIndex >= entryCount
                     && (sealed || currentChunkIndex < currentSnapshot.size() - 1)) {
                 currentChunkIndex++;

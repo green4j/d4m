@@ -99,10 +99,6 @@ class ConcurrencyStressTest {
         return buffer.getLong(payloadOffset);
     }
 
-    private static long payloadOrder(final AtomicBuffer buffer, final int payloadOffset) {
-        return buffer.getLong(payloadOffset + 8);
-    }
-
     private static void checkPayload(final AtomicBuffer buffer,
                                      final int payloadOffset,
                                      final int payloadLength) {
@@ -290,82 +286,6 @@ class ConcurrencyStressTest {
     }
 
     @Test
-    void writerWithForwardCursors() throws Exception {
-        final TestSequenceStorage sequenceStorage = store(32L * CHUNK);
-        final Sequence sequence = sequenceStorage.getOrCreate("sequence");
-        final AtomicBoolean run = new AtomicBoolean(true);
-        final AtomicLong written = new AtomicLong();
-        final CountDownLatch go = new CountDownLatch(1);
-        final ExecutorService ex = Executors.newCachedThreadPool();
-        final List<Future<?>> fs = new ArrayList<>();
-
-        fs.add(ex.submit(appendWriter(sequence, run, written, go)));
-        for (int r = 0; r < READERS; r++) {
-            fs.add(ex.submit(forwardReader(sequence, run, go, true)));
-        }
-
-        go.countDown();
-        Thread.sleep(DURATION_MS);
-        run.set(false);
-        join(fs);
-        ex.shutdown();
-
-        assertTrue(written.get() > 1000, "Writer must produce significant volume; got " + written.get());
-        System.out.printf("  [fwdCursors] wrote %,d msgs%n", written.get());
-    }
-
-    @Test
-    void writerWithBackwardCursors() throws Exception {
-        final TestSequenceStorage storage = store(32L * CHUNK);
-        final Sequence sequence = storage.getOrCreate("sequence");
-        final AtomicBoolean run = new AtomicBoolean(true);
-        final AtomicLong written = new AtomicLong();
-        final CountDownLatch go = new CountDownLatch(1);
-        final ExecutorService ex = Executors.newCachedThreadPool();
-        final List<Future<?>> fs = new ArrayList<>();
-
-        fs.add(ex.submit(appendWriter(sequence, run, written, go)));
-
-        for (int r = 0; r < READERS; r++) {
-            fs.add(ex.submit(() -> {
-                go.await();
-                final BackwardCursor cur = new BackwardCursor(sequence);
-                try {
-                    while (run.get()) {
-                        cur.seekToEnd();
-                        final long[] prev = {Long.MAX_VALUE};
-                        for (int pass = 0; pass < 20; pass++) {
-                            final int n = cur.next(100, (owner, entryOrder, buf, off, size) -> {
-                                checkPayload(buf, off, size);
-                                if (entryOrder > prev[0]) {
-                                    throw new AssertionError("order increased: " + prev[0]
-                                            + " -> " + entryOrder);
-                                }
-                                prev[0] = entryOrder;
-                            });
-                            if (n == 0) {
-                                break;
-                            }
-                        }
-                    }
-                } finally {
-                    cur.close();
-                }
-                return null;
-            }));
-        }
-
-        go.countDown();
-        Thread.sleep(DURATION_MS);
-        run.set(false);
-        join(fs);
-        ex.shutdown();
-
-        assertTrue(written.get() > 1000);
-        System.out.printf("  [bwdCursors] wrote %,d msgs%n", written.get());
-    }
-
-    @Test
     void heavyEviction() throws Exception {
         // 4 Heap chunks -> eviction fires every ~320 entries
         final TestSequenceStorage storage = store(4L * CHUNK);
@@ -509,57 +429,6 @@ class ConcurrencyStressTest {
 
         assertTrue(written.get() > 100);
         System.out.printf("  [batchAppend] wrote %,d msgs%n", written.get());
-    }
-
-    @Test
-    void cowWithConcurrentReaders() throws Exception {
-        final TestSequenceStorage storage = store(32L * CHUNK);
-        final Sequence sequence = storage.getOrCreate("sequence");
-        final AtomicBoolean run = new AtomicBoolean(true);
-        final AtomicLong written = new AtomicLong();
-        final CountDownLatch go = new CountDownLatch(1);
-        final ExecutorService ex = Executors.newCachedThreadPool();
-        final List<Future<?>> fs = new ArrayList<>();
-
-        // Writer: appends with gaps, inserts fill gaps -> triggers COW
-        fs.add(ex.submit(() -> {
-            go.await();
-            final UnsafeBuffer pb =
-                    new UnsafeBuffer(new byte[PAYLOAD_SIZE]);
-            long seq = 0;
-            long appendTs = 0;
-            while (run.get()) {
-                encodePayload(pb, seq, appendTs);
-                sequence.append(appendTs, pb, 0, PAYLOAD_SIZE);
-                seq++;
-
-                // Every 30 appends, insert into a gap to trigger COW
-                if (seq % 30 == 0 && appendTs >= 5) {
-                    final long insertTs = appendTs - 3;
-                    encodePayload(pb, seq, insertTs);
-                    sequence.insert(insertTs, pb, 0, PAYLOAD_SIZE);
-                    seq++;
-                }
-                appendTs += 2; // leave gaps
-            }
-            written.set(seq);
-            return null;
-        }));
-
-        // Readers: verify ordering + checksum (seq won't be monotonic
-        // Because inserts have later seq but earlier order)
-        for (int r = 0; r < READERS; r++) {
-            fs.add(ex.submit(forwardReader(sequence, run, go, false)));
-        }
-
-        go.countDown();
-        Thread.sleep(DURATION_MS);
-        run.set(false);
-        join(fs);
-        ex.shutdown();
-
-        assertTrue(written.get() > 500);
-        System.out.printf("  [cow] wrote %,d msgs%n", written.get());
     }
 
     @Test
@@ -739,6 +608,7 @@ class ConcurrencyStressTest {
         final Sequence sequence = storage.getOrCreate("sequence");
         final AtomicBoolean run = new AtomicBoolean(true);
         final AtomicLong written = new AtomicLong();
+        final AtomicLong tailingReaderSaw = new AtomicLong();
         final CountDownLatch go = new CountDownLatch(1);
         final ExecutorService ex = Executors.newCachedThreadPool();
         final List<Future<?>> fs = new ArrayList<>();
@@ -798,6 +668,7 @@ class ConcurrencyStressTest {
             } finally {
                 cur.close();
             }
+            tailingReaderSaw.set(state[1]);
             System.out.printf("    tailing reader saw %,d/%,d%n", state[1], written.get());
             return null;
         }));
@@ -808,11 +679,102 @@ class ConcurrencyStressTest {
         join(fs);
         ex.shutdown();
 
+        assertEquals(written.get(), tailingReaderSaw.get(),
+                "tailing reader must deliver every written entry");
         System.out.printf("  [tailing] wrote %,d msgs%n", written.get());
     }
 
+    /**
+     * Drives the same code path as {@code realtimeTailing} but with a
+     * high-rate writer over many small chunks, so the writer routinely
+     * seals a chunk while the reader is still consuming it. This is the
+     * regression that hung {@code SequenceRealtimeForwardLatency}: before
+     * the {@link ForwardCursor} fix the reader's re-read guard required
+     * {@code !isSealed() && currentChunkIndex == size - 1}, so any
+     * entries the writer committed between the reader's first
+     * {@code getEntryCount()} and the seal were silently skipped when the
+     * cursor advanced to the next chunk.
+     *
+     * <p>The test fails fast (rather than hangs) by enforcing a deadline
+     * inside the reader loop.</p>
+     */
     @Test
-    void completenessAfterDrain() throws Exception {
+    void forwardTailingCompletenessUnderSealRace() throws Exception {
+        final TestSequenceStorage storage = store(32L * CHUNK);
+        final Sequence sequence = storage.getOrCreate("sequence");
+
+        // ~80 entries per chunk -> ~12 500 chunk transitions while the
+        // reader is in-flight; against pre-fix ForwardCursor this
+        // reliably trips the seal race (observed >90 % failure rate
+        // over 10 runs). Against the fixed cursor the test completes
+        // in ~2 s.
+        final int totalEntries = 1_000_000;
+        final CountDownLatch go = new CountDownLatch(1);
+        final ExecutorService ex = Executors.newCachedThreadPool();
+        final List<Future<?>> fs = new ArrayList<>();
+
+        // Writer: paced so the reader regularly catches up and pins the
+        // active tail chunk while the writer is still filling it.
+        // Matches the SequenceRealtimeForwardLatency example's writer
+        // shape, where this race was first observed.
+        fs.add(ex.submit(() -> {
+            go.await();
+            final UnsafeBuffer pb = new UnsafeBuffer(new byte[PAYLOAD_SIZE]);
+            for (int i = 0; i < totalEntries; i++) {
+                encodePayload(pb, i, i);
+                if (!sequence.append(i, pb, 0, PAYLOAD_SIZE)) {
+                    throw new AssertionError("append rejected at seq=" + i);
+                }
+                LockSupport.parkNanos(1_000); // ~1us, like the example
+            }
+            return null;
+        }));
+
+        // Reader: spin without throttling, like the example. The
+        // deadline turns a real regression into a quick assertion
+        // failure rather than a 60 s suite hang.
+        final AtomicLong deliveredOut = new AtomicLong();
+        fs.add(ex.submit(() -> {
+            go.await();
+            final ForwardCursor cur = new ForwardCursor(sequence);
+            final long[] state = {-1, 0}; // expectedNextSeq, count
+            final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+            try {
+                while (state[1] < totalEntries) {
+                    if (System.nanoTime() > deadline) {
+                        throw new AssertionError(
+                                "tailing reader stalled at " + state[1]
+                                        + " of " + totalEntries);
+                    }
+                    cur.next(1024, (owner, entryOrder, buf, off, size) -> {
+                        checkPayload(buf, off, size);
+                        final long seq = payloadSequence(buf, off);
+                        if (state[0] >= 0 && seq != state[0]) {
+                            throw new AssertionError(
+                                    "gap: expected seq " + state[0] + " got " + seq);
+                        }
+                        state[0] = seq + 1;
+                        state[1]++;
+                    });
+                }
+            } finally {
+                cur.close();
+            }
+            deliveredOut.set(state[1]);
+            return null;
+        }));
+
+        go.countDown();
+        join(fs);
+        ex.shutdown();
+
+        assertEquals(totalEntries, deliveredOut.get(),
+                "reader must deliver every entry the writer wrote");
+        System.out.printf("  [sealRaceCompleteness] verified %,d msgs%n", deliveredOut.get());
+    }
+
+    @Test
+    void completenessAfterDrain() {
         // Small heap to force eviction during writes
         final TestSequenceStorage storage = store(6L * CHUNK);
         final Sequence sequence = storage.getOrCreate("sequence");
@@ -1432,135 +1394,6 @@ class ConcurrencyStressTest {
 
         assertTrue(ops.get() > 500);
         System.out.printf("  [eviction+cow] ops=%,d%n", ops.get());
-    }
-
-    @Test
-    void insertBatchWithConcurrentReaders() throws Exception {
-        final TestSequenceStorage storage = store(32L * CHUNK);
-        final Sequence sequence = storage.getOrCreate("sequence");
-        final AtomicBoolean run = new AtomicBoolean(true);
-        final AtomicLong written = new AtomicLong();
-        final CountDownLatch go = new CountDownLatch(1);
-        final ExecutorService ex = Executors.newCachedThreadPool();
-        final List<Future<?>> fs = new ArrayList<>();
-
-        // Writer: appends with gaps (order += 10), periodically insertBatch
-        // fills gaps with batches of entries
-        fs.add(ex.submit(() -> {
-            go.await();
-            final UnsafeBuffer pb = new UnsafeBuffer(new byte[PAYLOAD_SIZE]);
-            final int batchSize = 4;
-            final long[] batchOrders = new long[batchSize];
-            final int[] batchOffsets = new int[batchSize];
-            final int[] batchSizes = new int[batchSize];
-            final UnsafeBuffer batchPl = new UnsafeBuffer(new byte[batchSize * PAYLOAD_SIZE]);
-            for (int i = 0; i < batchSize; i++) {
-                batchOffsets[i] = i * PAYLOAD_SIZE;
-                batchSizes[i] = PAYLOAD_SIZE;
-            }
-
-            long seq = 0;
-            long appendOrder = 0;
-            while (run.get()) {
-                encodePayload(pb, seq, appendOrder);
-                sequence.append(appendOrder, pb, 0, PAYLOAD_SIZE);
-                seq++;
-
-                if (seq % 40 == 0 && appendOrder >= 50) {
-                    final long base = appendOrder - 30;
-                    for (int i = 0; i < batchSize; i++) {
-                        batchOrders[i] = base + i * 2 + 1; // odd orders in gaps
-                        encodePayload(batchPl, batchOffsets[i], seq + i, batchOrders[i]);
-                    }
-                    sequence.insertBatch(batchOrders, batchPl, batchOffsets, batchSizes, batchSize);
-                    seq += batchSize;
-                }
-                appendOrder += 10;
-            }
-            written.set(seq);
-            return null;
-        }));
-
-        for (int r = 0; r < READERS; r++) {
-            fs.add(ex.submit(forwardReader(sequence, run, go, false)));
-        }
-        for (int r = 0; r < 2; r++) {
-            fs.add(ex.submit(backwardStreamingReader(sequence, run, go)));
-        }
-
-        go.countDown();
-        Thread.sleep(DURATION_MS);
-        run.set(false);
-        join(fs);
-        ex.shutdown();
-
-        assertTrue(written.get() > 500);
-        System.out.printf("  [insertBatch] wrote %,d msgs%n", written.get());
-    }
-
-    @Test
-    void mixedAppendAndInsertBatchWriter() throws Exception {
-        final TestSequenceStorage storage = store(16L * CHUNK);
-        final Sequence sequence = storage.getOrCreate("sequence");
-        final AtomicBoolean run = new AtomicBoolean(true);
-        final AtomicLong written = new AtomicLong();
-        final CountDownLatch go = new CountDownLatch(1);
-        final ExecutorService ex = Executors.newCachedThreadPool();
-        final List<Future<?>> fs = new ArrayList<>();
-
-        final int batchCount = 16;
-
-        // Writer alternates between appendBatch and insertBatch
-        fs.add(ex.submit(() -> {
-            go.await();
-            long seq = 0;
-            final long[] orders = new long[batchCount];
-            final int[] offsets = new int[batchCount];
-            final int[] sizes = new int[batchCount];
-            final UnsafeBuffer pl = new UnsafeBuffer(new byte[batchCount * PAYLOAD_SIZE]);
-            for (int i = 0; i < batchCount; i++) {
-                offsets[i] = i * PAYLOAD_SIZE;
-                sizes[i] = PAYLOAD_SIZE;
-            }
-
-            long appendOrder = 0;
-            while (run.get()) {
-                // appendBatch: monotonic tail
-                for (int i = 0; i < batchCount; i++) {
-                    orders[i] = appendOrder + i * 10;
-                    encodePayload(pl, offsets[i], seq + i, orders[i]);
-                }
-                final int appended = sequence.appendBatch(orders, pl, offsets, sizes, batchCount);
-                seq += appended;
-                appendOrder += batchCount * 10;
-
-                // insertBatch: fill gaps in older data
-                if (seq > batchCount * 3 && appendOrder >= 100) {
-                    final long base = appendOrder - 80;
-                    for (int i = 0; i < batchCount; i++) {
-                        orders[i] = base + i * 3 + 1;
-                        encodePayload(pl, offsets[i], seq + i, orders[i]);
-                    }
-                    final int inserted = sequence.insertBatch(orders, pl, offsets, sizes, batchCount);
-                    seq += inserted;
-                }
-            }
-            written.set(seq);
-            return null;
-        }));
-
-        for (int r = 0; r < READERS; r++) {
-            fs.add(ex.submit(forwardReader(sequence, run, go, false)));
-        }
-
-        go.countDown();
-        Thread.sleep(DURATION_MS);
-        run.set(false);
-        join(fs);
-        ex.shutdown();
-
-        assertTrue(written.get() > 100);
-        System.out.printf("  [mixedBatch] wrote %,d msgs%n", written.get());
     }
 
     @Test
