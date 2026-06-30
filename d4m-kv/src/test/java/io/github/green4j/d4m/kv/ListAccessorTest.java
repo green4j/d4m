@@ -28,7 +28,9 @@ import io.github.green4j.d4m.common.UnsafeBuffer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -171,7 +173,7 @@ class ListAccessorTest {
         assertEquals(src.size(), dst.size());
         assertEquals(4, dst.size());
 
-        // Re-bind src to something else; dst must still be readable.
+        // Re-bind src to something else; dst must be readable.
         assertFalse(load(src, "missing"));
         assertEquals(0, src.size());
 
@@ -179,6 +181,74 @@ class ListAccessorTest {
         for (int i = 0; i < 4; i++) {
             assertTrue(dst.get(i, consumer));
             assertEquals("v" + i, stringAt(consumer));
+        }
+    }
+
+    @Test
+    void forEachStopsAtChosenIndex() {
+        for (int i = 0; i < 5; i++) {
+            append("k", "v" + i);
+        }
+        final ListAccessor acc = new ListAccessor();
+        assertTrue(load(acc, "k"));
+
+        final CollectingStoppableConsumer consumer = new CollectingStoppableConsumer();
+        consumer.stopAfter = 3; // deliver v0, v1, v2, then stop
+
+        final int delivered = acc.forEach(consumer);
+
+        assertEquals(3, delivered);
+        assertEquals(List.of("v0", "v1", "v2"), consumer.visited);
+    }
+
+    @Test
+    void forEachStopFalseDeliversAll() {
+        for (int i = 0; i < 5; i++) {
+            append("k", "v" + i);
+        }
+        final ListAccessor acc = new ListAccessor();
+        assertTrue(load(acc, "k"));
+
+        final CollectingStoppableConsumer consumer = new CollectingStoppableConsumer();
+        // stopAfter left at its default (never stops)
+
+        final int delivered = acc.forEach(consumer);
+
+        assertEquals(acc.size(), delivered);
+        assertEquals(5, delivered);
+        assertEquals(List.of("v0", "v1", "v2", "v3", "v4"), consumer.visited);
+    }
+
+    @Test
+    void forEachStoppableBeforeLoadThrows() {
+        final ListAccessor acc = new ListAccessor();
+        final CollectingStoppableConsumer consumer = new CollectingStoppableConsumer();
+        assertThrows(IllegalStateException.class, () -> acc.forEach(consumer));
+    }
+
+    /**
+     * Test-only {@link KeyValueConsuming.StoppableValueConsumer} that captures
+     * each delivered value (in insertion order) and stops once
+     * {@link #stopAfter} entries have been delivered.
+     */
+    private static final class CollectingStoppableConsumer
+            implements KeyValueConsuming.StoppableValueConsumer<KeyValueConsuming.Value> {
+
+        private final ByteArrayValueConsumer delegate = new ByteArrayValueConsumer();
+        private final List<String> visited = new ArrayList<>();
+        private int stopAfter = Integer.MAX_VALUE;
+
+        @Override
+        public KeyValueConsuming.Value putValue(final int valueSize) {
+            return delegate.putValue(valueSize);
+        }
+
+        @Override
+        public boolean stopped() {
+            // Polled after the entry has been delivered: the delegate now
+            // holds the just-received value.
+            visited.add(new String(Arrays.copyOf(delegate.array(), delegate.valueSize())));
+            return visited.size() >= stopAfter;
         }
     }
 }

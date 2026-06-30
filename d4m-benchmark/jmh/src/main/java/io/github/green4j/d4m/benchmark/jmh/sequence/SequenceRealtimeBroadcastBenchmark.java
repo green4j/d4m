@@ -57,7 +57,7 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Run with:
  * <pre>
- *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="RealtimeBroadcastBenchmark"
+ *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="SequenceRealtimeBroadcastBenchmark"
  * </pre>
  */
 @BenchmarkMode(Mode.Throughput)
@@ -70,7 +70,7 @@ import java.util.concurrent.TimeUnit;
         "-Xmx8g", "-Xms8g"
 })
 @State(Scope.Group)
-public class RealtimeBroadcastBenchmark {
+public class SequenceRealtimeBroadcastBenchmark {
 
     @Param({"65536", "131072", "524288"})
     int chunkSize;
@@ -115,7 +115,7 @@ public class RealtimeBroadcastBenchmark {
          * @param parent the enclosing benchmark providing sequence count
          */
         @Setup(Level.Trial)
-        public void setup(final RealtimeBroadcastBenchmark parent) {
+        public void setup(final SequenceRealtimeBroadcastBenchmark parent) {
             orderCounters = new long[parent.sequenceCount];
             payload = BenchmarkSupport.createPayload();
         }
@@ -139,7 +139,7 @@ public class RealtimeBroadcastBenchmark {
          * @param parent the enclosing benchmark providing sequences and cursor type
          */
         @Setup(Level.Trial)
-        public void setup(final RealtimeBroadcastBenchmark parent) {
+        public void setup(final SequenceRealtimeBroadcastBenchmark parent) {
             switch (parent.cursorType) {
                 case MERGED_FORWARD:
                     mfwd = MergedForwardCursor.create(parent.sequences);

@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Lock-free allocator for heap-backed chunks. Pre-allocates slabs of
  * contiguous memory at construction time and manages a Treiber stack
- * of free chunks. Chunks pending reclamation (still pinned by readers)
+ * of free chunks. Chunks pending reclamation (pinned by readers)
  * are retried via CAS with exponential deferral to avoid contention.
  */
 public final class HeapChunkAllocator {
@@ -132,7 +132,7 @@ public final class HeapChunkAllocator {
 
     /**
      * Drains the pending reclamation queue, returning chunks with zero
-     * ref-count to the free stack. Chunks still pinned by readers are
+     * ref-count to the free stack. Chunks pinned by readers are
      * re-enqueued; after exceeding the retry threshold they are moved
      * to a deferred queue to reduce hot-path contention.
      */

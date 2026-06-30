@@ -96,6 +96,24 @@ public interface KeyValueConsuming {
     }
 
     /**
+     * A {@link ValueConsumer} that can request early termination of an
+     * iteration (e.g. {@link ListAccessor#forEach(StoppableValueConsumer)}).
+     * The iterator polls {@link #stopped()} after delivering each entry.
+     *
+     * @param <C> the concrete {@link Value} type
+     */
+    interface StoppableValueConsumer<C extends Value> extends ValueConsumer<C> {
+        /**
+         * Polled by iteration methods after each entry has been delivered
+         * (i.e. after the entry's {@code putValue}/{@code apply} cycle).
+         *
+         * @return {@code true} to stop iterating (no further entries are
+         *         delivered), {@code false} to continue
+         */
+        boolean stopped();
+    }
+
+    /**
      * Consumer that receives a key-value allocation for given key and value sizes.
      *
      * @param <C> the concrete {@link KeyValue} type

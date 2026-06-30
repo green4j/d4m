@@ -61,7 +61,7 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Run with:
  * <pre>
- *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="ScaledBroadcastBenchmark"
+ *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="SequenceScaledBroadcastBenchmark"
  * </pre>
  */
 @BenchmarkMode(Mode.Throughput)
@@ -74,7 +74,7 @@ import java.util.concurrent.TimeUnit;
         "-Xmx8g", "-Xms8g"
 })
 @State(Scope.Group)
-public class ScaledBroadcastBenchmark {
+public class SequenceScaledBroadcastBenchmark {
 
     static final int CURSOR_COUNT = 100;
 
@@ -121,7 +121,7 @@ public class ScaledBroadcastBenchmark {
          * @param parent the enclosing benchmark providing sequence count
          */
         @Setup(Level.Trial)
-        public void setup(final ScaledBroadcastBenchmark parent) {
+        public void setup(final SequenceScaledBroadcastBenchmark parent) {
             orderCounters = new long[parent.sequenceCount];
             payload = BenchmarkSupport.createPayload();
         }
@@ -150,7 +150,7 @@ public class ScaledBroadcastBenchmark {
          * @param parent the enclosing benchmark providing sequences and cursor type
          */
         @Setup(Level.Trial)
-        public void setup(final ScaledBroadcastBenchmark parent) {
+        public void setup(final SequenceScaledBroadcastBenchmark parent) {
             switch (parent.cursorType) {
                 case MERGED_FORWARD:
                     mfwdCursors = new MergedForwardCursor[CURSOR_COUNT];

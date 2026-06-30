@@ -53,8 +53,8 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Thread count is controlled by the JMH {@code -t} flag:
  * <pre>
- *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="HistoricalReadBenchmark -t 1"
- *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="HistoricalReadBenchmark -t 2"
+ *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="SequenceHistoricalReadBenchmark -t 1"
+ *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="SequenceHistoricalReadBenchmark -t 2"
  * </pre>
  */
 @BenchmarkMode(Mode.Throughput)
@@ -67,7 +67,7 @@ import java.util.concurrent.TimeUnit;
         "-Xmx8g", "-Xms8g"
 })
 @State(Scope.Benchmark)
-public class HistoricalReadBenchmark {
+public class SequenceHistoricalReadBenchmark {
 
     private static final int BATCH = BenchmarkSupport.READ_BATCH;
 
@@ -123,7 +123,7 @@ public class HistoricalReadBenchmark {
          * @param parent the enclosing benchmark providing sequences and cursor type
          */
         @Setup(Level.Trial)
-        public void setup(final HistoricalReadBenchmark parent) {
+        public void setup(final SequenceHistoricalReadBenchmark parent) {
             switch (parent.cursorType) {
                 case FORWARD:
                     fwd = new ForwardCursor(parent.sequences[0]);

@@ -28,8 +28,8 @@ import io.github.green4j.d4m.kv.KeyValueRing;
 
 /**
  * KeyValues-specific helpers for JMH benchmarks of the raw
- * {@link KeyValueRing} API. Generic ring construction, eviction
- * profiles, and buffer helpers live in {@link BenchmarkSupport}.
+ * {@link KeyValueRing} API. Generic ring construction and buffer
+ * helpers live in {@link BenchmarkSupport}.
  */
 public final class KeyValuesBenchmarkSupport {
 
@@ -37,23 +37,25 @@ public final class KeyValuesBenchmarkSupport {
     }
 
     /**
-     * Populates the ring with the first {@code count} pre-built keys, each
-     * mapped to the shared {@code value} buffer. Lets benchmark @Setup reuse
-     * the same key array later in the hot loop, so the populate path and
-     * the measured path share the identical buffer layout.
+     * Populates the ring with {@code count} key-value pairs by
+     * stamping each sequence number into the trailing 8 bytes of the
+     * shared key buffer via {@code keyBuf.putLong(KEY_SIZE -
+     * Long.BYTES, i)} and re-using the shared value buffer. The
+     * populate path and the measured hot loop share identical buffer
+     * layouts.
      *
      * @param ring   the ring to populate
-     * @param keys   pre-built key buffers (e.g. from {@link BenchmarkSupport#createKeyArray()})
-     * @param value  shared value buffer (e.g. from {@link BenchmarkSupport#createValueBuffer()})
-     * @param count  the number of entries to insert; must be {@code <= keys.length}
+     * @param keyBuf reusable key buffer (mutated per entry)
+     * @param value  shared value buffer
+     * @param count  the number of entries to insert
      */
     static void populate(final KeyValueRing ring,
-                         final UnsafeBuffer[] keys,
+                         final UnsafeBuffer keyBuf,
                          final UnsafeBuffer value,
                          final int count) {
         for (int i = 0; i < count; i++) {
-            final UnsafeBuffer key = keys[i];
-            ring.put(key, 0, BenchmarkSupport.KEY_SIZE,
+            keyBuf.putLong(BenchmarkSupport.KEY_SIZE - Long.BYTES, i);
+            ring.put(keyBuf, 0, BenchmarkSupport.KEY_SIZE,
                     value, 0, BenchmarkSupport.VALUE_SIZE);
         }
     }

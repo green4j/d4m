@@ -31,38 +31,19 @@ import io.github.green4j.d4m.kv.MmapTierFactory;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.Arrays;
 
 /**
  * Shared utilities and constants for JMH benchmarks in the d4m-kv module.
+ *
+ * <p>Both eviction profiles share the same {@link #HOT_TIER} size;
+ * profile differentiation comes from <strong>how many entries each
+ * profile writes</strong> within a single bounded JMH iteration:
+ * {@code noEviction} writes a count that fits in the hot tier (0 %
+ * spill), {@code evict30} writes 30 % more (30 % spill to mmap).
  */
 public final class BenchmarkSupport {
     public static final int KEY_SIZE = 32;
     public static final int VALUE_SIZE = 200;
-
-    /**
-     * Pre-built key count for the noEviction read / write / concurrent
-     * benchmarks. Power-of-two so the hot loop can index with AND instead
-     * of {@code %}.
-     */
-    public static final int KEY_ARRAY_SIZE = 131_072;
-
-    /** Mask paired with {@link #KEY_ARRAY_SIZE} for index lookups. */
-    public static final int KEY_INDEX_MASK = KEY_ARRAY_SIZE - 1;
-
-    /**
-     * Pre-built key count for the {@code evict30} read benchmarks. Sized so
-     * that, with {@link #RING_SIZE} segments and {@link #ENTRY_SIZE_ESTIMATE}
-     * bytes per entry, the working set per segment (~60 MB) is clearly
-     * larger than the Apple M1 Pro 24 MB system-level cache - the reader
-     * therefore takes real CPU-cache misses on top of mmap accesses, which
-     * is the realistic shape of a workload that has spilled past the hot
-     * tier. Power-of-two so the hot loop still indexes with an AND mask.
-     */
-    public static final int EVICT_KEY_ARRAY_SIZE = 2 * 1024 * 1024;
-
-    /** Mask paired with {@link #EVICT_KEY_ARRAY_SIZE} for index lookups. */
-    public static final int EVICT_KEY_INDEX_MASK = EVICT_KEY_ARRAY_SIZE - 1;
 
     static final int RING_SIZE = 8;
     static final int SHUFFLE_MULTIPLIER = 16;
@@ -70,74 +51,81 @@ public final class BenchmarkSupport {
 
     static final int ENTRY_SIZE_ESTIMATE = 240;
 
-    static final int HOT_TIER_NO_EVICTION = 128 * 1024 * 1024;
     /**
-     * Per-segment hot tier for the {@code evict30} profile. Sized to exceed
-     * the Apple M1 Pro 24 MB system-level cache so the writer's / reader's
-     * hot working set is cache-cold and takes real CPU-cache misses, while
-     * still forcing continuous eviction to mmap once the tier fills.
+     * Estimated KeyLists per-list footprint in the segment's binary
+     * buffer: one metadata entry (~57 B) plus {@code ENTRIES_PER_LIST
+     * = 10} data entries (~224 B each).
      */
-    static final int HOT_TIER_EVICT = 32 * 1024 * 1024;
+    static final int LIST_FOOTPRINT_ESTIMATE = 57 + 10 * 224;
+
+    /**
+     * Fraction of {@code evict30}'s working set that lives in the hot
+     * tier; the remaining {@code 1 - EVICT30_HEAP_FRACTION} (~30 %)
+     * spills to mmap.
+     */
+    static final double EVICT30_HEAP_FRACTION = 0.70;
+
+    /**
+     * Single per-segment hot tier shared by both eviction profiles.
+     * Must be a power of two (see {@code KeyValueBuffer}). 32 MB
+     * exceeds the M1 Pro 24 MB SLC, so the hot working set stays
+     * cache-cold.
+     */
+    static final int HOT_TIER = 32 * 1024 * 1024;
+
     static final int MMAP_TIER_SIZE = 256 * 1024 * 1024;
+
+    /**
+     * KeyValues op count for the {@code noEviction} profile: every
+     * entry fits in {@link #HOT_TIER}, so 0 % spill to mmap.
+     */
+    public static final int KV_KEYS_NO_EVICTION =
+            (int) ((long) RING_SIZE * HOT_TIER / ENTRY_SIZE_ESTIMATE);
+
+    /**
+     * KeyValues op count for the {@code evict30} profile: 30 % more
+     * entries than fit in {@link #HOT_TIER}, so 30 % spill to mmap.
+     */
+    public static final int KV_KEYS_EVICT_30 =
+            (int) (KV_KEYS_NO_EVICTION / EVICT30_HEAP_FRACTION);
+
+    /**
+     * KeyLists list count for the {@code noEviction} profile: each
+     * list (one metadata entry + {@code ENTRIES_PER_LIST = 10} data
+     * entries) fits in {@link #HOT_TIER}.
+     */
+    public static final int KL_LISTS_NO_EVICTION =
+            (int) ((long) RING_SIZE * HOT_TIER / LIST_FOOTPRINT_ESTIMATE);
+
+    /**
+     * KeyLists list count for the {@code evict30} profile: 30 % more
+     * lists than fit in {@link #HOT_TIER}, so 30 % spill to mmap.
+     */
+    public static final int KL_LISTS_EVICT_30 =
+            (int) (KL_LISTS_NO_EVICTION / EVICT30_HEAP_FRACTION);
 
     private BenchmarkSupport() {
     }
 
     /**
-     * Creates a {@link KeyValueRing} with a large hot tier that avoids eviction.
+     * Creates a {@link KeyValueRing} with the shared {@link #HOT_TIER}
+     * per segment and the default {@link #RING_SIZE} segments.
      *
-     * @return a ring configured for no-eviction benchmarks
+     * @return a ring shared by both eviction profiles
      */
-    static KeyValueRing createRingNoEviction() {
-        return createRing(RING_SIZE, HOT_TIER_NO_EVICTION);
+    static KeyValueRing createRing() {
+        return createRing(RING_SIZE);
     }
 
     /**
-     * Creates a {@link KeyValueRing} with a large hot tier that avoids eviction,
-     * using the specified number of segments.
+     * Creates a {@link KeyValueRing} with the shared {@link #HOT_TIER}
+     * per segment and a custom segment count. Used by the concurrent
+     * benchmarks.
      *
      * @param ringSize the number of ring segments
-     * @return a ring configured for no-eviction benchmarks
-     */
-    static KeyValueRing createRingNoEviction(final int ringSize) {
-        return createRing(ringSize, HOT_TIER_NO_EVICTION);
-    }
-
-    /**
-     * Creates a {@link KeyValueRing} with a {@link #HOT_TIER_EVICT} hot
-     * tier per segment - large enough that the hot working set is
-     * cache-cold (so the writer/reader takes real CPU-cache misses), yet
-     * small enough to force continuous eviction to mmap once it fills.
-     * Use for the {@code evict30} profile.
-     *
-     * @return a ring configured for the evict30 profile
-     */
-    static KeyValueRing createRingEvict30() {
-        return createRing(RING_SIZE, HOT_TIER_EVICT);
-    }
-
-    /**
-     * Creates a {@link KeyValueRing} with a {@link #HOT_TIER_EVICT} hot
-     * tier per segment, using the specified number of segments. Use for
-     * the {@code evict30} profile.
-     *
-     * @param ringSize the number of ring segments
-     * @return a ring configured for the evict30 profile
-     */
-    static KeyValueRing createRingEvict30(final int ringSize) {
-        return createRing(ringSize, HOT_TIER_EVICT);
-    }
-
-    /**
-     * Creates a {@link KeyValueRing} with the given ring size and
-     * hot tier size per segment.
-     *
-     * @param ringSize              the number of ring segments
-     * @param hotTierSizePerSegment the hot tier buffer size in bytes for each segment
      * @return a fully configured ring
      */
-    private static KeyValueRing createRing(final int ringSize,
-                                           final int hotTierSizePerSegment) {
+    static KeyValueRing createRing(final int ringSize) {
         final File dir;
         try {
             dir = Files.createTempDirectory("d4m-kv-jmh-").toFile();
@@ -153,7 +141,7 @@ public final class BenchmarkSupport {
                         1,
                         new MmapTierFactory(
                                 index,
-                                hotTierSizePerSegment,
+                                HOT_TIER,
                                 false,
                                 INITIAL_CAPACITY,
                                 MMAP_TIER_SIZE,
@@ -168,100 +156,16 @@ public final class BenchmarkSupport {
     }
 
     /**
-     * Creates a reusable key buffer of {@link #KEY_SIZE} bytes,
-     * pre-filled with a zero-padding prefix.
+     * Allocates a reusable {@link #KEY_SIZE}-byte key buffer. The
+     * bytes are left at their JVM-zero default; the write / read
+     * benchmarks stamp the per-call identifier into the trailing 8
+     * bytes via {@code putLong(KEY_SIZE - Long.BYTES, seq)} on every
+     * op.
      *
      * @return a reusable 32-byte key buffer
      */
     static UnsafeBuffer createKeyBuffer() {
-        final byte[] keyBytes = new byte[KEY_SIZE];
-        Arrays.fill(keyBytes, (byte) '0');
-        return new UnsafeBuffer(keyBytes);
-    }
-
-    /**
-     * Writes the ASCII representation of the given sequence number
-     * into the key buffer, right-aligned within {@link #KEY_SIZE} bytes.
-     * The leading bytes are left as-is (expected to be '0' padding).
-     *
-     * @param keyBuf the pre-allocated key buffer
-     * @param seq    the sequence number to encode
-     */
-    static void writeKeyInPlace(final UnsafeBuffer keyBuf, final long seq) {
-        long val = seq;
-        int pos = KEY_SIZE - 1;
-        if (val == 0) {
-            keyBuf.putByte(pos, (byte) '0');
-            for (int i = 0; i < pos; i++) {
-                keyBuf.putByte(i, (byte) '0');
-            }
-            return;
-        }
-        while (val > 0 && pos >= 0) {
-            keyBuf.putByte(pos--, (byte) ('0' + (int) (val % 10)));
-            val /= 10;
-        }
-        for (int i = 0; i <= pos; i++) {
-            keyBuf.putByte(i, (byte) '0');
-        }
-    }
-
-    /**
-     * Writes just the trailing ASCII digits of {@code seq} into the buffer,
-     * starting from byte {@code KEY_SIZE - 1} and walking left. Assumes the
-     * buffer was previously filled with {@code '0'} and that {@code seq} only
-     * ever grows (cycles back would leave leftover high-order digits, but
-     * the eviction-write benchmarks use strictly increasing sequence
-     * numbers). Much cheaper than {@link #writeKeyInPlace} which also
-     * rewrites the leading padding every call.
-     *
-     * @param keyBuf the pre-allocated key buffer (must have leading '0' padding)
-     * @param seq    the strictly monotonic sequence number to encode
-     */
-    static void writeKeyTail(final UnsafeBuffer keyBuf, final long seq) {
-        long val = seq;
-        int pos = KEY_SIZE - 1;
-        do {
-            keyBuf.putByte(pos--, (byte) ('0' + (int) (val % 10)));
-            val /= 10;
-        } while (val > 0);
-    }
-
-    /**
-     * Builds {@link #KEY_ARRAY_SIZE} pre-encoded, immutable key buffers.
-     * Each key is a {@link #KEY_SIZE}-byte right-aligned ASCII number
-     * (key {@code i} encodes {@code i}). Benchmarks index into this array
-     * via {@code seq & KEY_INDEX_MASK} in the hot loop so the measured op
-     * is just the storage call - no per-op ASCII conversion or modulo.
-     *
-     * @return an array of {@link #KEY_ARRAY_SIZE} pre-encoded key buffers
-     */
-    static UnsafeBuffer[] createKeyArray() {
-        return createKeyArray(KEY_ARRAY_SIZE);
-    }
-
-    /**
-     * Builds {@link #EVICT_KEY_ARRAY_SIZE} pre-encoded, immutable key
-     * buffers for the {@code evict30} read profile. Same encoding and
-     * hot-loop shape as {@link #createKeyArray()} but with a much larger
-     * working set so the read benchmarks take real CPU-cache misses on
-     * top of the mmap accesses.
-     *
-     * @return an array of {@link #EVICT_KEY_ARRAY_SIZE} pre-encoded key buffers
-     */
-    static UnsafeBuffer[] createEvictKeyArray() {
-        return createKeyArray(EVICT_KEY_ARRAY_SIZE);
-    }
-
-    private static UnsafeBuffer[] createKeyArray(final int count) {
-        final UnsafeBuffer[] keys = new UnsafeBuffer[count];
-        for (int i = 0; i < count; i++) {
-            final byte[] bytes = new byte[KEY_SIZE];
-            Arrays.fill(bytes, (byte) '0');
-            keys[i] = new UnsafeBuffer(bytes);
-            writeKeyInPlace(keys[i], i);
-        }
-        return keys;
+        return new UnsafeBuffer(new byte[KEY_SIZE]);
     }
 
     /**

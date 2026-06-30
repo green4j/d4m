@@ -812,7 +812,7 @@ public final class Sequence {
         // Guard oldChunk against eviction during allocate() calls inside reset()/spill().
         // evictOne() checks EVICTION_CANDIDATE -> EVICTION_IN_PROGRESS via CAS and skips
         // anything already IN_PROGRESS, so this prevents oldChunk's buffer from being
-        // recycled as a scratch chunk while we are still reading it.
+        // recycled as a scratch chunk while we are reading it.
         if (!oldChunk.casEvictionState(Chunk.EVICTION_NONE, Chunk.EVICTION_IN_PROGRESS)) {
             oldChunk.casEvictionState(Chunk.EVICTION_CANDIDATE, Chunk.EVICTION_IN_PROGRESS);
         }
@@ -1112,7 +1112,7 @@ public final class Sequence {
      * snapshot. Stale or mismatched swaps are discarded.
      *
      * <p><b>In-place array modification safety:</b> old snapshot readers
-     * that still reference the shared backing arrays are safe because:
+     * that reference the shared backing arrays are safe because:
      * <ol>
      *   <li>The mmap chunk contains an identical byte-for-byte copy of the
      *       heap chunk data - readers get correct data either way.</li>
@@ -1739,7 +1739,7 @@ public final class Sequence {
     /**
      * Allocates a chunk, trying heap first. If the heap is exhausted, triggers
      * one eviction cycle and retries. Falls back to mmap allocation if heap
-     * space is still unavailable.
+     * space is unavailable.
      *
      * @return a freshly allocated chunk (heap- or mmap-backed)
      */
@@ -1832,7 +1832,7 @@ public final class Sequence {
      * successful CAS, the ref-count is decremented and the pin fails.
      *
      * @param chunk         the chunk to pin
-     * @param expectedEpoch the epoch the chunk must still have
+     * @param expectedEpoch the epoch the chunk must have
      * @return {@code true} if the chunk was successfully pinned with the
      * expected epoch; the caller must eventually call
      * {@link CursorSupport#decRef} to release it

@@ -44,28 +44,25 @@ import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Warmup;
 
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Measures concurrent append/list throughput for the
- * {@link KeyListStorage} API with a single writer thread and
- * 1 or 10 reader threads.
+ * Concurrent append/list-load throughput for {@link KeyListStorage},
+ * with a single writer thread plus 1 or 10 reader threads (group mode).
  *
- * <p>Two eviction profiles, mirroring {@link KeyValuesConcurrentReadWriteBenchmark}:
- * <ul>
- *   <li>{@code noEviction} - large hot tier; the writer cycles keys
- *       within a pre-populated range so no eviction occurs.</li>
- *   <li>{@code evict30} - 32 MB hot tier per segment (&gt; M1 Pro SLC);
- *       the pre-population partly fits in heap and partly in mmap, and
- *       the writer keeps extending lists on top of a cache-cold hot
- *       working set, so writers/readers take real CPU-cache misses on
- *       top of mmap traffic.</li>
- * </ul>
+ * <p>Both eviction profiles share the same {@link
+ * BenchmarkSupport#HOT_TIER} hot tier. {@code @Setup(Level.Trial)}
+ * pre-populates the profile-specific list count ({@link
+ * BenchmarkSupport#KL_LISTS_NO_EVICTION} or {@link
+ * BenchmarkSupport#KL_LISTS_EVICT_30}), each list holding one entry;
+ * the writer cycles {@code seq % range} appending another entry per
+ * list id, and the readers cycle the same range loading lists. For
+ * {@code noEviction} every access is in tier[0]; for {@code evict30}
+ * ~30 % of accesses touch mmap-resident metadata or entries.
  *
  * <p>Two benchmark groups:
  * <ul>
- *   <li>{@code rw1} - 1 writer + 1 reader</li>
- *   <li>{@code rw10} - 1 writer + 10 readers</li>
+ *   <li>{@code rw1} -- 1 writer + 1 reader</li>
+ *   <li>{@code rw10} -- 1 writer + 10 readers</li>
  * </ul>
  *
  * <p>Run with:
@@ -85,8 +82,6 @@ import java.util.concurrent.atomic.AtomicLong;
 @State(Scope.Group)
 public class KeyListsConcurrentReadWriteBenchmark {
 
-    private static final int PREPOPULATE_ENTRIES_PER_LIST = 10;
-
     @Param({"noEviction", "evict30"})
     String eviction;
 
@@ -94,92 +89,67 @@ public class KeyListsConcurrentReadWriteBenchmark {
     int segments;
 
     KeyListStorage lists;
-    UnsafeBuffer[] keys;            // shared, immutable
-    UnsafeBuffer value;             // shared, immutable
-    final AtomicLong written = new AtomicLong();
+    UnsafeBuffer value;
+    int range;
 
-    /**
-     * Creates and pre-populates the shared store with
-     * {@link BenchmarkSupport#KEY_ARRAY_SIZE} lists * {@link
-     * #PREPOPULATE_ENTRIES_PER_LIST} entries. In {@code noEviction} that
-     * sits comfortably in the large hot tier; in {@code evict30} the
-     * 32 MB hot tier holds part of the working set and the spillover
-     * lands in mmap, with the hot footprint kept cache-cold. Writers and
-     * readers cycle through the shared key array.
-     */
     @Setup(Level.Trial)
     public void setup() {
-        keys = BenchmarkSupport.createKeyArray();
         value = BenchmarkSupport.createValueBuffer();
-        if ("noEviction".equals(eviction)) {
-            lists = new KeyListStorage(
-                    BenchmarkSupport.createRingNoEviction(segments));
-        } else { // evict30
-            lists = KeyListsBenchmarkSupport.createKeyListsEvict30(segments);
-        }
-        // Pre-populate in both modes so readers always have lists to load.
-        // For evict30 the populate itself spills to mmap (working set >
-        // hot tier), establishing the eviction-heavy state before the
-        // benchmark even starts.
-        KeyListsBenchmarkSupport.populate(lists, keys, value,
-                BenchmarkSupport.KEY_ARRAY_SIZE, PREPOPULATE_ENTRIES_PER_LIST);
-        written.set(BenchmarkSupport.KEY_ARRAY_SIZE);
+        range = "noEviction".equals(eviction)
+                ? BenchmarkSupport.KL_LISTS_NO_EVICTION
+                : BenchmarkSupport.KL_LISTS_EVICT_30;
+        lists = KeyListsBenchmarkSupport.createKeyLists(segments);
+        final UnsafeBuffer populateKey = BenchmarkSupport.createKeyBuffer();
+        // One entry per list so the writer's cyclic appends extend
+        // existing lists rather than allocating new ones.
+        KeyListsBenchmarkSupport.populate(lists, populateKey, value, range, 1);
     }
 
-    /**
-     * Thread-local writer state. Each writer thread owns its own
-     * {@link KeyListsWriter}, honouring the "one writer per thread"
-     * contract from {@code KeyListsConcurrencyTest}.
-     */
     @State(Scope.Thread)
     public static class WriterState {
         KeyListsWriter writer;
+        UnsafeBuffer keyBuf;
         long seq;
 
         @Setup(Level.Trial)
         public void setup(final KeyListsConcurrentReadWriteBenchmark parent) {
             writer = parent.lists.newWriter();
-            seq = parent.written.get();
+            keyBuf = BenchmarkSupport.createKeyBuffer();
+            seq = 0;
         }
     }
 
-    /**
-     * Thread-local reader state. Each reader owns its own
-     * {@link ListAccessor} and consumer per the API's threading rule.
-     */
     @State(Scope.Thread)
     public static class ReaderState {
         ListAccessor accessor;
         ByteArrayValueConsumer consumer;
+        UnsafeBuffer keyBuf;
         long readSeq;
 
         @Setup(Level.Trial)
         public void setup() {
             accessor = new ListAccessor();
             consumer = new ByteArrayValueConsumer();
+            keyBuf = BenchmarkSupport.createKeyBuffer();
             readSeq = 0;
         }
     }
 
     private void doWrite(final WriterState ws) {
-        final UnsafeBuffer k = keys[(int) (ws.seq & BenchmarkSupport.KEY_INDEX_MASK)];
-        ws.writer.append(k, 0, BenchmarkSupport.KEY_SIZE,
+        ws.keyBuf.putLong(BenchmarkSupport.KEY_SIZE - Long.BYTES, ws.seq % range);
+        ws.writer.append(ws.keyBuf, 0, BenchmarkSupport.KEY_SIZE,
                 value, 0, BenchmarkSupport.VALUE_SIZE);
-        written.lazySet(ws.seq);
         ws.seq++;
     }
 
     private int doRead(final ReaderState rs) {
-        final UnsafeBuffer k = keys[(int) (rs.readSeq & BenchmarkSupport.KEY_INDEX_MASK)];
-        lists.list(rs.accessor, k, 0, BenchmarkSupport.KEY_SIZE);
+        rs.keyBuf.putLong(BenchmarkSupport.KEY_SIZE - Long.BYTES, rs.readSeq % range);
+        lists.list(rs.accessor, rs.keyBuf, 0, BenchmarkSupport.KEY_SIZE);
         final int delivered = rs.accessor.forEach(rs.consumer);
         rs.readSeq++;
         return delivered;
     }
 
-    /**
-     * Writer side for the 1W+1R group: appends one entry.
-     */
     @Benchmark
     @Group("rw1")
     @GroupThreads(1)
@@ -187,9 +157,6 @@ public class KeyListsConcurrentReadWriteBenchmark {
         doWrite(ws);
     }
 
-    /**
-     * Reader side for the 1W+1R group: loads one list and iterates every entry.
-     */
     @Benchmark
     @Group("rw1")
     @GroupThreads(1)
@@ -197,9 +164,6 @@ public class KeyListsConcurrentReadWriteBenchmark {
         return doRead(rs);
     }
 
-    /**
-     * Writer side for the 1W+10R group: appends one entry.
-     */
     @Benchmark
     @Group("rw10")
     @GroupThreads(1)
@@ -207,9 +171,6 @@ public class KeyListsConcurrentReadWriteBenchmark {
         doWrite(ws);
     }
 
-    /**
-     * Reader side for the 1W+10R group: loads one list and iterates every entry.
-     */
     @Benchmark
     @Group("rw10")
     @GroupThreads(10)

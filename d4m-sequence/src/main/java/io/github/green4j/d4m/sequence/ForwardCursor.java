@@ -338,14 +338,14 @@ public final class ForwardCursor {
 
     /**
      * Fast-path snapshot advancement for the common case where the cursor's
-     * current chunk is still present at the same index in the new snapshot
+     * current chunk is present at the same index in the new snapshot
      * (e.g. append-only growth or heap-to-mmap swap of other chunks).
      * Compares epochs to detect structural changes; if the epoch at the
-     * cursor's index is unchanged, the position is still valid and the
+     * cursor's index is unchanged, the position is valid and the
      * expensive O(N) reposition scan can be skipped.
      *
      * @param newSnapshot freshly published snapshot from {@link Sequence#snapshot()}
-     * @return {@code true} if the cursor position is still valid in {@code newSnapshot}
+     * @return {@code true} if the cursor position is valid in {@code newSnapshot}
      */
     private boolean tryAdvance(final ChunkSnapshot newSnapshot) {
         if (snapshot == null) {

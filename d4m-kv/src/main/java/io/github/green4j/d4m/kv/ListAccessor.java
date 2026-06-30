@@ -46,6 +46,10 @@ import io.github.green4j.d4m.common.UnsafeBuffer;
  *       acc.get(i, consumer);
  *   }
  *
+ *   // Stop scanning as soon as the consumer is satisfied (e.g. a match):
+ *   storage.list(acc, key3, 0, key3.capacity());
+ *   acc.forEach(stoppableConsumer); // stops once stoppableConsumer.stopped() is true
+ *
  *   ListAccessor acc2 = new ListAccessor();
  *   acc.copyTo(acc2);
  * }</pre>
@@ -139,6 +143,44 @@ public final class ListAccessor {
                 break;
             }
             delivered++;
+        }
+        return delivered;
+    }
+
+    /**
+     * Iterates entries in the loaded list from index 0 upward, delivering each
+     * value to the consumer, and stops early as soon as
+     * {@link KeyValueConsuming.StoppableValueConsumer#stopped()} returns
+     * {@code true} after a delivery.
+     *
+     * <p>{@code stopped()} is polled <em>after</em> the current entry has been
+     * delivered, so the entry that triggers the stop is included in the
+     * returned count; entries after the stop point are neither fetched nor
+     * delivered.
+     *
+     * @param consumer the stoppable consumer that receives each entry's value
+     * @return the number of entries delivered, including the entry after which
+     *         iteration was stopped
+     * @throws IllegalStateException if no list has been bound
+     */
+    public int forEach(
+            final KeyValueConsuming.StoppableValueConsumer<KeyValueConsuming.Value> consumer) {
+        if (kvStore == null) {
+            throw new IllegalStateException("No list bound. Call KeyLists.list() first.");
+        }
+
+        int delivered = 0;
+        for (int i = 0; i < count; i++) {
+            KeyListStorage.writeSyntheticKey(syntheticKeyBuffer, 0, userKeyIndex, i);
+            if (!kvStore.get(
+                    syntheticKeyBuffer, 0, KeyListStorage.SYNTHETIC_KEY_SIZE,
+                    consumer)) {
+                break;
+            }
+            delivered++;
+            if (consumer.stopped()) {
+                break;
+            }
         }
         return delivered;
     }

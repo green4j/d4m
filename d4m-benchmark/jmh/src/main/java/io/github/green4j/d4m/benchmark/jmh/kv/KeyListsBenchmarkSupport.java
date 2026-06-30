@@ -29,15 +29,17 @@ import io.github.green4j.d4m.kv.KeyListsWriter;
 import io.github.green4j.d4m.kv.KeyValueRing;
 
 /**
- * KeyLists-specific helpers for JMH benchmarks of the {@link KeyListStorage}
- * API layered on top of {@link KeyValueRing}. Generic ring construction,
- * eviction profiles, and buffer helpers come from {@link BenchmarkSupport}.
+ * KeyLists-specific helpers for JMH benchmarks of the {@link
+ * KeyListStorage} API layered on top of {@link KeyValueRing}.
+ * Generic ring construction and buffer helpers come from
+ * {@link BenchmarkSupport}.
  */
 public final class KeyListsBenchmarkSupport {
 
     /**
-     * Number of entries appended per list during pre-population for the
-     * KeyLists read/list benchmarks.
+     * Number of entries appended per list during pre-population for
+     * the KeyLists read benchmark. Must match the {@code 10} baked
+     * into {@link BenchmarkSupport#LIST_FOOTPRINT_ESTIMATE}.
      */
     public static final int ENTRIES_PER_LIST = 10;
 
@@ -45,61 +47,49 @@ public final class KeyListsBenchmarkSupport {
     }
 
     /**
-     * Creates a {@link KeyListStorage} wrapping a no-eviction ring.
+     * Creates a {@link KeyListStorage} backed by a ring with the
+     * shared {@link BenchmarkSupport#HOT_TIER}-sized hot tier.
      *
-     * @return a key-lists store backed by a ring that never evicts to mmap
+     * @return a key-lists store
      */
-    static KeyListStorage createKeyListsNoEviction() {
-        return new KeyListStorage(BenchmarkSupport.createRingNoEviction());
+    static KeyListStorage createKeyLists() {
+        return new KeyListStorage(BenchmarkSupport.createRing());
     }
 
     /**
-     * Creates a {@link KeyListStorage} wrapping a {@link
-     * BenchmarkSupport#HOT_TIER_EVICT}-hot-tier ring for the {@code evict30}
-     * profile - hot tier sized so the working set is cache-cold (real
-     * CPU-cache misses) while still forcing eviction to mmap when the tier
-     * fills.
-     *
-     * @return a key-lists store for the evict30 profile
-     */
-    static KeyListStorage createKeyListsEvict30() {
-        return new KeyListStorage(BenchmarkSupport.createRingEvict30());
-    }
-
-    /**
-     * Same as {@link #createKeyListsEvict30()} but with a custom number of
-     * segments (used by the concurrent benchmarks).
+     * Same as {@link #createKeyLists()} but with a custom segment
+     * count (used by the concurrent benchmarks).
      *
      * @param ringSize the number of ring segments
-     * @return a key-lists store for the evict30 profile
+     * @return a key-lists store
      */
-    static KeyListStorage createKeyListsEvict30(final int ringSize) {
-        return new KeyListStorage(BenchmarkSupport.createRingEvict30(ringSize));
+    static KeyListStorage createKeyLists(final int ringSize) {
+        return new KeyListStorage(BenchmarkSupport.createRing(ringSize));
     }
 
     /**
-     * Pre-populates the store with {@code listCount} lists, each holding
-     * {@code entriesPerList} entries, using the supplied pre-built key
-     * array and shared value buffer. The same arrays are reused by the
-     * benchmark's hot loop so the steady-state and warm-up paths exercise
-     * identical buffer layouts.
+     * Pre-populates the store with {@code listCount} lists, each
+     * holding {@code entriesPerList} entries. The key is encoded
+     * in-buffer via {@code keyBuf.putLong(KEY_SIZE - Long.BYTES, i)}
+     * on each step, matching the hot loop's encoding so steady-state
+     * and warm-up paths exercise identical buffer layouts.
      *
-     * @param lists            the store to populate
-     * @param keys             pre-built key buffers
-     * @param value            shared value buffer
-     * @param listCount        the number of distinct lists (user keys); must be {@code <= keys.length}
-     * @param entriesPerList   the number of appends per list
+     * @param lists          the store to populate
+     * @param keyBuf         reusable key buffer (mutated per list)
+     * @param value          shared value buffer
+     * @param listCount      the number of distinct lists
+     * @param entriesPerList the number of appends per list
      */
     static void populate(final KeyListStorage lists,
-                         final UnsafeBuffer[] keys,
+                         final UnsafeBuffer keyBuf,
                          final UnsafeBuffer value,
                          final int listCount,
                          final int entriesPerList) {
         final KeyListsWriter writer = lists.newWriter();
         for (int i = 0; i < listCount; i++) {
-            final UnsafeBuffer key = keys[i];
+            keyBuf.putLong(BenchmarkSupport.KEY_SIZE - Long.BYTES, i);
             for (int e = 0; e < entriesPerList; e++) {
-                writer.append(key, 0, BenchmarkSupport.KEY_SIZE,
+                writer.append(keyBuf, 0, BenchmarkSupport.KEY_SIZE,
                         value, 0, BenchmarkSupport.VALUE_SIZE);
             }
         }

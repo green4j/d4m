@@ -43,17 +43,21 @@ import org.openjdk.jmh.annotations.Warmup;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Measures single-thread read (get) throughput for key-value storage.
+ * Single-thread read benchmark for {@link KeyValueRing}, measured in
+ * {@link Mode#SingleShotTime}. Each invocation does a fixed number of
+ * gets in a tight loop and reports the elapsed time; per-op
+ * throughput = {@code range / time}.
  *
- * <p>Two eviction profiles:
+ * <p>Both eviction profiles share the same {@link
+ * BenchmarkSupport#HOT_TIER} hot tier. {@code @Setup(Iteration)}
+ * pre-populates the ring with the profile-specific entry count:
  * <ul>
- *   <li>{@code noEviction} - all pre-populated data resides in the hot tier.</li>
- *   <li>{@code evict30} - uses the larger pre-population
- *       ({@link BenchmarkSupport#EVICT_KEY_ARRAY_SIZE}) so the working set
- *       per segment exceeds CPU cache, with a 32 MB hot tier that still
- *       spills ~30 % of data to mmap. The reader therefore takes real
- *       CPU-cache misses on top of mmap accesses - the realistic shape
- *       of a workload that has spilled past the hot tier.</li>
+ *   <li>{@code noEviction} populates {@link
+ *       BenchmarkSupport#KV_KEYS_NO_EVICTION} entries -- all fit in
+ *       the hot tier, every get hits tier[0].</li>
+ *   <li>{@code evict30} populates {@link
+ *       BenchmarkSupport#KV_KEYS_EVICT_30} entries -- 30 % overflow
+ *       to mmap, so ~30 % of gets pay tier-cascade lookup cost.</li>
  * </ul>
  *
  * <p>Run with:
@@ -61,10 +65,10 @@ import java.util.concurrent.TimeUnit;
  *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="KeyValuesReadBenchmark"
  * </pre>
  */
-@BenchmarkMode(Mode.Throughput)
-@OutputTimeUnit(TimeUnit.SECONDS)
-@Warmup(iterations = 5, time = 5)
-@Measurement(iterations = 5, time = 10)
+@BenchmarkMode(Mode.SingleShotTime)
+@OutputTimeUnit(TimeUnit.MILLISECONDS)
+@Warmup(iterations = 5)
+@Measurement(iterations = 5)
 @Fork(value = 1, jvmArgs = {
         "--add-opens", "java.base/jdk.internal.misc=ALL-UNNAMED",
         "--add-opens", "java.base/java.nio=ALL-UNNAMED",
@@ -78,49 +82,33 @@ public class KeyValuesReadBenchmark {
     String eviction;
 
     private KeyValueRing ring;
-    private UnsafeBuffer[] keys;
-    private int keyIndexMask;
+    private UnsafeBuffer keyBuf;
     private ByteArrayValueConsumer consumer;
-    private long seq;
+    private int range;
 
-    /**
-     * Creates and pre-populates the ring. {@code noEviction} pre-populates
-     * {@link BenchmarkSupport#KEY_ARRAY_SIZE} keys into the large no-eviction
-     * hot tier. {@code evict30} pre-populates
-     * {@link BenchmarkSupport#EVICT_KEY_ARRAY_SIZE} keys so the working
-     * set per segment exceeds CPU cache and the 32 MB hot tier spills
-     * ~30 % of entries to mmap.
-     */
     @Setup(Level.Trial)
-    public void setup() {
-        final UnsafeBuffer value = BenchmarkSupport.createValueBuffer();
-        final int population;
-        if ("noEviction".equals(eviction)) {
-            ring = BenchmarkSupport.createRingNoEviction();
-            keys = BenchmarkSupport.createKeyArray();
-            population = BenchmarkSupport.KEY_ARRAY_SIZE;
-            keyIndexMask = BenchmarkSupport.KEY_INDEX_MASK;
-        } else { // evict30
-            ring = BenchmarkSupport.createRingEvict30();
-            keys = BenchmarkSupport.createEvictKeyArray();
-            population = BenchmarkSupport.EVICT_KEY_ARRAY_SIZE;
-            keyIndexMask = BenchmarkSupport.EVICT_KEY_INDEX_MASK;
-        }
-        KeyValuesBenchmarkSupport.populate(ring, keys, value, population);
+    public void setupTrial() {
+        keyBuf = BenchmarkSupport.createKeyBuffer();
         consumer = new ByteArrayValueConsumer();
-        seq = 0;
+        range = "noEviction".equals(eviction)
+                ? BenchmarkSupport.KV_KEYS_NO_EVICTION
+                : BenchmarkSupport.KV_KEYS_EVICT_30;
     }
 
-    /**
-     * Gets one value by key - hot loop is array index plus the storage call.
-     *
-     * @return whether a value was found for the key
-     */
+    @Setup(Level.Iteration)
+    public void setupIteration() {
+        ring = BenchmarkSupport.createRing();
+        final UnsafeBuffer value = BenchmarkSupport.createValueBuffer();
+        KeyValuesBenchmarkSupport.populate(ring, keyBuf, value, range);
+    }
+
     @Benchmark
     public boolean get() {
-        final UnsafeBuffer k = keys[(int) (seq & keyIndexMask)];
-        final boolean found = ring.get(k, 0, BenchmarkSupport.KEY_SIZE, consumer);
-        seq++;
+        boolean found = true;
+        for (int seq = 0; seq < range; seq++) {
+            keyBuf.putLong(BenchmarkSupport.KEY_SIZE - Long.BYTES, seq);
+            found &= ring.get(keyBuf, 0, BenchmarkSupport.KEY_SIZE, consumer);
+        }
         return found;
     }
 }

@@ -687,7 +687,7 @@ class ConcurrencyStressTest {
     /**
      * Drives the same code path as {@code realtimeTailing} but with a
      * high-rate writer over many small chunks, so the writer routinely
-     * seals a chunk while the reader is still consuming it. This is the
+     * seals a chunk while the reader is consuming it. This is the
      * regression that hung {@code SequenceRealtimeForwardLatency}: before
      * the {@link ForwardCursor} fix the reader's re-read guard required
      * {@code !isSealed() && currentChunkIndex == size - 1}, so any
@@ -714,7 +714,7 @@ class ConcurrencyStressTest {
         final List<Future<?>> fs = new ArrayList<>();
 
         // Writer: paced so the reader regularly catches up and pins the
-        // active tail chunk while the writer is still filling it.
+        // active tail chunk while the writer is filling it.
         // Matches the SequenceRealtimeForwardLatency example's writer
         // shape, where this race was first observed.
         fs.add(ex.submit(() -> {

@@ -48,13 +48,13 @@ abstract class CursorSupport {
         long pinnedSnapshotVersion = -1;
 
         /**
-         * Returns {@code true} if this pin is still valid for the given
+         * Returns {@code true} if this pin is valid for the given
          * snapshot and chunk index, accounting for buffer identity and
          * epoch consistency.
          *
          * @param snap       the current snapshot to validate against
          * @param chunkIndex the chunk index to validate
-         * @return whether the existing pin is still usable
+         * @return whether the existing pin is usable
          */
         boolean isValidFor(final ChunkSnapshot snap,
                            final int chunkIndex) {
@@ -103,7 +103,7 @@ abstract class CursorSupport {
 
     /**
      * Attempts to pin a chunk by atomically incrementing its reference count,
-     * verifying epoch consistency. Reuses an existing pin if it is still valid
+     * verifying epoch consistency. Reuses an existing pin if it is valid
      * for the requested snapshot and chunk index.
      *
      * @param forSnapshot the snapshot containing the chunk to pin

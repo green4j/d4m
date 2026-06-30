@@ -64,7 +64,7 @@ The split lets `copyChunkDataFrom` bulk-copy line 1 + entry data without touchin
 
 Per-entry header is 24 bytes (`order`, monotonic `version`, payload length); payload is 8-byte aligned.
 
-`CACHE_LINE = 128` matches Apple M-series; on x86-64 (64-byte lines) the two hot regions still never share a single line.
+`CACHE_LINE = 128` matches Apple M-series; on x86-64 (64-byte lines) the two hot regions never share a single line.
 
 ### Pin protocol (reader safety vs. eviction)
 

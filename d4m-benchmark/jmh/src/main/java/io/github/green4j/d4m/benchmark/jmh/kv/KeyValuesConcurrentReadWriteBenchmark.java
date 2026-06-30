@@ -42,28 +42,26 @@ import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Warmup;
 
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Measures concurrent write/read throughput for key-value storage with
- * a single writer thread and 1 or 10 reader threads.
+ * Concurrent read/write throughput for {@link KeyValueRing}, with a
+ * single writer thread plus 1 or 10 reader threads (group mode).
  *
- * <p>Two eviction profiles:
- * <ul>
- *   <li>{@code noEviction} - large hot tier; the writer cycles keys within
- *       a pre-populated range so no eviction occurs.</li>
- *   <li>{@code evict30} - 32 MB hot tier per segment (&gt; M1 Pro SLC); the
- *       writer inserts unique keys continuously, so the hot tier fills
- *       and entries cascade to mmap. The hot working set is cache-cold,
- *       so writers and readers take real CPU-cache misses on top of mmap
- *       traffic - the realistic shape of a workload that has outgrown
- *       the hot tier.</li>
- * </ul>
+ * <p>Both eviction profiles share the same {@link
+ * BenchmarkSupport#HOT_TIER} hot tier. {@code @Setup(Level.Trial)}
+ * pre-populates the profile-specific entry count
+ * ({@link BenchmarkSupport#KV_KEYS_NO_EVICTION} or {@link
+ * BenchmarkSupport#KV_KEYS_EVICT_30}); both the writer and the
+ * readers then cycle their op sequence over that range, so each
+ * writer put is an in-place update and each reader get hits a
+ * pre-populated key. For {@code noEviction} every access is in
+ * tier[0]; for {@code evict30} ~30 % of accesses touch
+ * mmap-resident entries.
  *
  * <p>Two benchmark groups:
  * <ul>
- *   <li>{@code rw1} - 1 writer + 1 reader</li>
- *   <li>{@code rw10} - 1 writer + 10 readers</li>
+ *   <li>{@code rw1} -- 1 writer + 1 reader</li>
+ *   <li>{@code rw10} -- 1 writer + 10 readers</li>
  * </ul>
  *
  * <p>Run with:
@@ -90,107 +88,60 @@ public class KeyValuesConcurrentReadWriteBenchmark {
     int segments;
 
     KeyValueRing ring;
-    UnsafeBuffer[] keys;            // populated for noEviction (shared, immutable)
-    UnsafeBuffer value;             // shared, immutable
-    boolean usingPreBuiltKeys;
-    final AtomicLong written = new AtomicLong();
+    UnsafeBuffer value;
+    int range;
 
-    /**
-     * Creates and pre-populates the shared ring.
-     * In {@code noEviction} mode the ring is pre-populated with
-     * {@link BenchmarkSupport#KEY_ARRAY_SIZE} entries and reader/writer
-     * cycle within that range. In {@code evict30} mode the writer keeps
-     * producing fresh unique keys; the reader gates on {@link #written}
-     * so it never indexes ahead of the writer.
-     */
     @Setup(Level.Trial)
     public void setup() {
         value = BenchmarkSupport.createValueBuffer();
-        usingPreBuiltKeys = "noEviction".equals(eviction);
-        if (usingPreBuiltKeys) {
-            ring = BenchmarkSupport.createRingNoEviction(segments);
-            keys = BenchmarkSupport.createKeyArray();
-            KeyValuesBenchmarkSupport.populate(
-                    ring, keys, value, BenchmarkSupport.KEY_ARRAY_SIZE);
-            written.set(BenchmarkSupport.KEY_ARRAY_SIZE);
-        } else { // evict30
-            ring = BenchmarkSupport.createRingEvict30(segments);
-        }
+        range = "noEviction".equals(eviction)
+                ? BenchmarkSupport.KV_KEYS_NO_EVICTION
+                : BenchmarkSupport.KV_KEYS_EVICT_30;
+        ring = BenchmarkSupport.createRing(segments);
+        final UnsafeBuffer populateKey = BenchmarkSupport.createKeyBuffer();
+        KeyValuesBenchmarkSupport.populate(ring, populateKey, value, range);
     }
 
-    /**
-     * Thread-local writer state. For the eviction profiles each writer
-     * holds its own {@code uniqueKeyBuf} so {@code writeKeyTail}
-     * doesn't race with other writers.
-     */
     @State(Scope.Thread)
     public static class WriterState {
-        UnsafeBuffer uniqueKeyBuf;
+        UnsafeBuffer keyBuf;
         long seq;
 
         @Setup(Level.Trial)
-        public void setup(final KeyValuesConcurrentReadWriteBenchmark parent) {
-            if (!parent.usingPreBuiltKeys) {
-                uniqueKeyBuf = BenchmarkSupport.createKeyBuffer();
-            }
-            seq = parent.written.get();
+        public void setup() {
+            keyBuf = BenchmarkSupport.createKeyBuffer();
+            seq = 0;
         }
     }
 
-    /**
-     * Thread-local reader state. The {@code lookupKeyBuf} is allocated only
-     * for the eviction-profile paths so the reader can encode the writer's
-     * trailing-digit key to look it up.
-     */
     @State(Scope.Thread)
     public static class ReaderState {
         ByteArrayValueConsumer consumer;
-        UnsafeBuffer lookupKeyBuf;
+        UnsafeBuffer keyBuf;
         long readSeq;
 
         @Setup(Level.Trial)
-        public void setup(final KeyValuesConcurrentReadWriteBenchmark parent) {
+        public void setup() {
             consumer = new ByteArrayValueConsumer();
-            if (!parent.usingPreBuiltKeys) {
-                lookupKeyBuf = BenchmarkSupport.createKeyBuffer();
-            }
+            keyBuf = BenchmarkSupport.createKeyBuffer();
             readSeq = 0;
         }
     }
 
     private void doWrite(final WriterState ws) {
-        final UnsafeBuffer k;
-        if (usingPreBuiltKeys) {
-            k = keys[(int) (ws.seq & BenchmarkSupport.KEY_INDEX_MASK)];
-        } else {
-            BenchmarkSupport.writeKeyTail(ws.uniqueKeyBuf, ws.seq);
-            k = ws.uniqueKeyBuf;
-        }
-        ring.put(k, 0, BenchmarkSupport.KEY_SIZE,
+        ws.keyBuf.putLong(BenchmarkSupport.KEY_SIZE - Long.BYTES, ws.seq % range);
+        ring.put(ws.keyBuf, 0, BenchmarkSupport.KEY_SIZE,
                 value, 0, BenchmarkSupport.VALUE_SIZE);
-        written.lazySet(ws.seq);
         ws.seq++;
     }
 
     private boolean doRead(final ReaderState rs) {
-        final UnsafeBuffer k;
-        if (usingPreBuiltKeys) {
-            k = keys[(int) (rs.readSeq & BenchmarkSupport.KEY_INDEX_MASK)];
-        } else {
-            // Same trailing-digit encoding as the writer; bounded by what's
-            // been published so the reader never looks past the writer.
-            final long range = Math.max(1, written.get());
-            BenchmarkSupport.writeKeyTail(rs.lookupKeyBuf, rs.readSeq % range);
-            k = rs.lookupKeyBuf;
-        }
-        final boolean found = ring.get(k, 0, BenchmarkSupport.KEY_SIZE, rs.consumer);
+        rs.keyBuf.putLong(BenchmarkSupport.KEY_SIZE - Long.BYTES, rs.readSeq % range);
+        final boolean found = ring.get(rs.keyBuf, 0, BenchmarkSupport.KEY_SIZE, rs.consumer);
         rs.readSeq++;
         return found;
     }
 
-    /**
-     * Writer side for the 1W+1R group.
-     */
     @Benchmark
     @Group("rw1")
     @GroupThreads(1)
@@ -198,9 +149,6 @@ public class KeyValuesConcurrentReadWriteBenchmark {
         doWrite(ws);
     }
 
-    /**
-     * Reader side for the 1W+1R group.
-     */
     @Benchmark
     @Group("rw1")
     @GroupThreads(1)
@@ -208,9 +156,6 @@ public class KeyValuesConcurrentReadWriteBenchmark {
         return doRead(rs);
     }
 
-    /**
-     * Writer side for the 1W+10R group.
-     */
     @Benchmark
     @Group("rw10")
     @GroupThreads(1)
@@ -218,9 +163,6 @@ public class KeyValuesConcurrentReadWriteBenchmark {
         doWrite(ws);
     }
 
-    /**
-     * Reader side for the 1W+10R group.
-     */
     @Benchmark
     @Group("rw10")
     @GroupThreads(10)

@@ -47,7 +47,7 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Run with:
  * <pre>
- *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="WriteBenchmark"
+ *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="SequenceWriteBenchmark"
  * </pre>
  */
 @BenchmarkMode(Mode.Throughput)
@@ -61,7 +61,7 @@ import java.util.concurrent.TimeUnit;
 })
 @Threads(1)
 @State(Scope.Thread)
-public class WriteBenchmark {
+public class SequenceWriteBenchmark {
 
     @Param({"65536", "131072", "524288"})
     int chunkSize;

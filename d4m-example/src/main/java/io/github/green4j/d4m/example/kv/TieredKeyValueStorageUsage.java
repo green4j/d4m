@@ -52,6 +52,14 @@ public class TieredKeyValueStorageUsage {
     private static final byte[] VALUE_PREFIX_BYTES = VALUE_PREFIX.getBytes();
 
     public static void main(final String[] args) {
+        // The default builder reserves 128 MB of main memory split across
+        // 8 ring segments -- 16 MB hot tier per segment. With this
+        // example's 10 M-entry working set (~250 B per entry => ~300 MB
+        // per segment), ~95 % of the data lives in mmap by the time
+        // pre-population finishes. To match the d4m-benchmark JMH
+        // numbers (which size the hot tier so 70 % stays in memory),
+        // raise the budget, e.g.:
+        //   KeyValueStorage.builder().withTotalMainMemory(1L << 30).build();
         final KeyValueStorage.Builder builder = KeyValueStorage.builder();
 
         final KeyValueStorage storage = builder.build();

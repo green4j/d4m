@@ -37,7 +37,7 @@ import io.github.green4j.d4m.common.BitSupport;
 public class Chunk {
     /**
      * Cache-line width in bytes. 128 on some architects like Apple M-series;
-     * safe for x86-64 (two 64-byte lines) because the two hot regions still
+     * safe for x86-64 (two 64-byte lines) because the two hot regions
      * never share a single 64-byte line.
      */
     public static final int CACHE_LINE = 128;

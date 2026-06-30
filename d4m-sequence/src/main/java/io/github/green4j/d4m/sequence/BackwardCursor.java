@@ -340,11 +340,11 @@ public final class BackwardCursor {
 
     /**
      * Fast-path snapshot advancement for the common case where the cursor's
-     * current chunk is still present at the same index in the new snapshot.
+     * current chunk is present at the same index in the new snapshot.
      * Mirrors.
      *
      * @param newSnapshot freshly published snapshot from {@link Sequence#snapshot()}
-     * @return {@code true} if the cursor position is still valid in {@code newSnapshot}
+     * @return {@code true} if the cursor position is valid in {@code newSnapshot}
      */
     private boolean tryAdvance(final ChunkSnapshot newSnapshot) {
         if (snapshot == null) {

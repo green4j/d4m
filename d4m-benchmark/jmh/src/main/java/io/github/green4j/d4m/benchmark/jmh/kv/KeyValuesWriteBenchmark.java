@@ -42,17 +42,31 @@ import org.openjdk.jmh.annotations.Warmup;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Measures single-thread write (put) throughput for key-value storage.
+ * Single-thread write benchmark for {@link KeyValueRing}, measured in
+ * {@link Mode#SingleShotTime}. Each invocation does a fixed number of
+ * puts in a tight loop and reports the elapsed time; per-op
+ * throughput = {@code range / time}.
  *
- * <p>Two eviction profiles:
+ * <p>Both eviction profiles share the same {@link
+ * BenchmarkSupport#HOT_TIER} hot tier. Profile differentiation comes
+ * from the op count:
  * <ul>
- *   <li>{@code noEviction} - large hot tier; keys cycle within a pre-populated
- *       range so no eviction ever occurs (measures pure in-memory write speed).</li>
- *   <li>{@code evict30} - 32 MB hot tier per segment (&gt; M1 Pro SLC); unique
- *       keys are written continuously so the hot tier fills and entries
- *       cascade to mmap. The hot working set is cache-cold, so the writer
- *       takes real CPU-cache misses on top of mmap eviction - the realistic
- *       shape of a workload that has outgrown the hot tier.</li>
+ *   <li>{@code noEviction} writes {@link BenchmarkSupport#KV_KEYS_NO_EVICTION}
+ *       entries -- all fit in the hot tier, 0 % mmap.</li>
+ *   <li>{@code evict30} writes {@link BenchmarkSupport#KV_KEYS_EVICT_30}
+ *       entries -- 30 % more than fit, 30 % spill to mmap.</li>
+ * </ul>
+ *
+ * <p>Two write modes:
+ * <ul>
+ *   <li>{@code insert} -- {@code @Setup(Iteration)} builds an empty
+ *       ring; the timed loop puts {@code range} fresh keys.</li>
+ *   <li>{@code update} -- {@code @Setup(Iteration)} pre-populates
+ *       the ring with {@code range} entries, so the timed loop's
+ *       puts are in-place updates of existing keys (for
+ *       {@code noEviction} all updates hit tier[0]; for
+ *       {@code evict30} ~30 % of updates touch mmap-resident
+ *       keys and cascade).</li>
  * </ul>
  *
  * <p>Run with:
@@ -60,10 +74,10 @@ import java.util.concurrent.TimeUnit;
  *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="KeyValuesWriteBenchmark"
  * </pre>
  */
-@BenchmarkMode(Mode.Throughput)
-@OutputTimeUnit(TimeUnit.SECONDS)
-@Warmup(iterations = 5, time = 5)
-@Measurement(iterations = 5, time = 10)
+@BenchmarkMode(Mode.SingleShotTime)
+@OutputTimeUnit(TimeUnit.MILLISECONDS)
+@Warmup(iterations = 5)
+@Measurement(iterations = 5)
 @Fork(value = 1, jvmArgs = {
         "--add-opens", "java.base/jdk.internal.misc=ALL-UNNAMED",
         "--add-opens", "java.base/java.nio=ALL-UNNAMED",
@@ -76,63 +90,37 @@ public class KeyValuesWriteBenchmark {
     @Param({"noEviction", "evict30"})
     String eviction;
 
-    private KeyValueRing ring;
-    private UnsafeBuffer[] keys;       // populated for noEviction
-    private UnsafeBuffer uniqueKeyBuf; // populated for evict30
-    private UnsafeBuffer value;
-    private long seq;
-    private boolean usingPreBuiltKeys;
+    @Param({"insert", "update"})
+    String mode;
 
-    /**
-     * Creates the ring and the appropriate key buffers.
-     *
-     * <p>In {@code noEviction} the ring is pre-populated with
-     * {@link BenchmarkSupport#KEY_ARRAY_SIZE} keys. Subsequent puts are
-     * in-place updates so no eviction fires; the hot loop is just an
-     * array index plus the {@code ring.put}.
-     *
-     * <p>In {@code evict30} the writer must keep producing fresh unique
-     * keys; pre-built cycling would degenerate into in-place updates and
-     * miss the eviction path entirely. The hot loop encodes the sequence
-     * number into one fixed buffer with a trailing-digit ASCII writer -
-     * much cheaper than full {@link BenchmarkSupport#writeKeyInPlace} but
-     * still produces a unique 32-byte key per call.
-     */
+    private KeyValueRing ring;
+    private UnsafeBuffer keyBuf;
+    private UnsafeBuffer value;
+    private int range;
+
     @Setup(Level.Trial)
-    public void setup() {
+    public void setupTrial() {
+        keyBuf = BenchmarkSupport.createKeyBuffer();
         value = BenchmarkSupport.createValueBuffer();
-        usingPreBuiltKeys = "noEviction".equals(eviction);
-        if (usingPreBuiltKeys) {
-            ring = BenchmarkSupport.createRingNoEviction();
-            keys = BenchmarkSupport.createKeyArray();
-            KeyValuesBenchmarkSupport.populate(
-                    ring, keys, value, BenchmarkSupport.KEY_ARRAY_SIZE);
-        } else { // evict30
-            ring = BenchmarkSupport.createRingEvict30();
-            uniqueKeyBuf = BenchmarkSupport.createKeyBuffer();
-        }
-        seq = 0;
+        range = "noEviction".equals(eviction)
+                ? BenchmarkSupport.KV_KEYS_NO_EVICTION
+                : BenchmarkSupport.KV_KEYS_EVICT_30;
     }
 
-    /**
-     * Puts one key-value pair per invocation. In the eviction profile the
-     * key is encoded as the trailing ASCII digits of {@code seq} (matching
-     * the original benchmark's key shape so the hash distribution and
-     * eviction profile are unchanged), but without the leading-zero
-     * padding rewrite that {@link BenchmarkSupport#writeKeyInPlace} does
-     * every call.
-     */
+    @Setup(Level.Iteration)
+    public void setupIteration() {
+        ring = BenchmarkSupport.createRing();
+        if ("update".equals(mode)) {
+            KeyValuesBenchmarkSupport.populate(ring, keyBuf, value, range);
+        }
+    }
+
     @Benchmark
     public void put() {
-        final UnsafeBuffer k;
-        if (usingPreBuiltKeys) {
-            k = keys[(int) (seq & BenchmarkSupport.KEY_INDEX_MASK)];
-        } else {
-            BenchmarkSupport.writeKeyTail(uniqueKeyBuf, seq);
-            k = uniqueKeyBuf;
+        for (int seq = 0; seq < range; seq++) {
+            keyBuf.putLong(BenchmarkSupport.KEY_SIZE - Long.BYTES, seq);
+            ring.put(keyBuf, 0, BenchmarkSupport.KEY_SIZE,
+                    value, 0, BenchmarkSupport.VALUE_SIZE);
         }
-        ring.put(k, 0, BenchmarkSupport.KEY_SIZE,
-                value, 0, BenchmarkSupport.VALUE_SIZE);
-        seq++;
     }
 }
