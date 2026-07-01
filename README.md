@@ -46,7 +46,7 @@ explanations, the cache-vs-mmap analysis, and how to reproduce -- see
 
 Both profiles share the same **32 MB hot tier per segment**. The
 "30" in `evict30` is the **spill percentage** -- evict30 writes
-`1 / 0.70 ~= 1.43 x` more entries per JMH iteration than noEviction
+`1 / 0.70 ~ 1.43 x` more entries per JMH iteration than noEviction
 so that 30 % of the working set overflows to mmap. noEviction's
 working set fits 1 : 1 in the hot tier (0 % mmap). Single-thread
 benchmarks run in `Mode.SingleShotTime` so the op count per

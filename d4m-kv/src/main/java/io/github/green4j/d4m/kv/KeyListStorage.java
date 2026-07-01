@@ -65,7 +65,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <h2>Capacity</h2>
  * <ul>
- *   <li>Distinct user keys: {@code 2^39 - 1 ~= 549 billion}</li>
+ *   <li>Distinct user keys: {@code 2^39 - 1 ~ 549 billion}</li>
  *   <li>Entries per list:   {@code 2^24 - 1 = 16,777,215}</li>
  * </ul>
  *

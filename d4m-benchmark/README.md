@@ -25,7 +25,7 @@ A developer's workstation:
 
 ## How to run
 
-Full canonical configuration (\~= tens of minutes per benchmark class):
+Full canonical configuration (\~ tens of minutes per benchmark class):
 
 ```
 ./gradlew :d4m-benchmark:jmh:jmh -PjmhArgs="KeyValuesWriteBenchmark"
@@ -64,12 +64,12 @@ difference between profiles is **how many entries are written**
 within a single bounded JMH iteration:
 
 - **`noEviction`** -- writes a count that fits in the hot tier.
-  - KV: `KV_KEYS_NO_EVICTION \~= 1 118 481` entries (8 x 32 MB / 240 B).
-  - KeyLists: `KL_LISTS_NO_EVICTION \~= 116 863` lists (each \~2.3 KB).
+  - KV: `KV_KEYS_NO_EVICTION ~ 1 118 481` entries (8 x 32 MB / 240 B).
+  - KeyLists: `KL_LISTS_NO_EVICTION ~ 116 863` lists (each \~2.3 KB).
   - Working set fits 1 : 1 in the hot tier -> **0 % mmap**.
 - **`evict30`** -- writes `1 / 0.70 = 1.43 x` more entries.
-  - KV: `KV_KEYS_EVICT_30 \~= 1 597 830` entries.
-  - KeyLists: `KL_LISTS_EVICT_30 \~= 166 947` lists.
+  - KV: `KV_KEYS_EVICT_30 ~ 1 597 830` entries.
+  - KeyLists: `KL_LISTS_EVICT_30 ~ 166 947` lists.
   - 30 % overflows the hot tier -> **30 % mmap**.
 
 This is only enforceable when each benchmark invocation does a
@@ -131,26 +131,26 @@ concurrent benchmarks measure **ops/sec** (Throughput, group mode).
 - `HOT_TIER = 32 MB` per segment (single power-of-two value, shared by both profiles)
 - `EVICT30_HEAP_FRACTION = 0.70` -- fraction of evict30's working set held by `HOT_TIER`
 - `RING_SIZE = 8` segments
-- `KV_KEYS_NO_EVICTION ~= 1 118 481` (computed: `8 x 32 MB / 240 B`) -- KV op count for `noEviction`; the resulting working set just fits in the hot tier
-- `KV_KEYS_EVICT_30 ~= 1 597 830` (computed: `KV_KEYS_NO_EVICTION / 0.70`) -- KV op count for `evict30`, 30 % overflow
-- `KL_LISTS_NO_EVICTION ~= 116 863` (computed: `8 x 32 MB / 2 297 B`) -- KeyLists list count for `noEviction`
-- `KL_LISTS_EVICT_30 ~= 166 947` (computed: `KL_LISTS_NO_EVICTION / 0.70`) -- KeyLists list count for `evict30`
+- `KV_KEYS_NO_EVICTION ~ 1 118 481` (computed: `8 x 32 MB / 240 B`) -- KV op count for `noEviction`; the resulting working set just fits in the hot tier
+- `KV_KEYS_EVICT_30 ~ 1 597 830` (computed: `KV_KEYS_NO_EVICTION / 0.70`) -- KV op count for `evict30`, 30 % overflow
+- `KL_LISTS_NO_EVICTION ~ 116 863` (computed: `8 x 32 MB / 2 297 B`) -- KeyLists list count for `noEviction`
+- `KL_LISTS_EVICT_30 ~ 166 947` (computed: `KL_LISTS_NO_EVICTION / 0.70`) -- KeyLists list count for `evict30`
 - `ENTRIES_PER_LIST = 10` entries appended per list during `KeyListsReadBenchmark` pre-population
 - `LIST_FOOTPRINT_ESTIMATE = 2 297 B` per list (one \~57 B metadata entry + 10 x \~224 B data entries)
 
 Per stored KV (in the segment's binary buffer):
 
-- KeyValues entry \~= 32-byte key + 200-byte payload + 16-byte header = **240 B** (`ENTRY_SIZE_ESTIMATE`)
-- KeyLists metadata entry \~= 33-byte key + 8-byte value + 16-byte header = **57 B**
-- KeyLists data entry \~= 8-byte synthetic key + 200-byte payload + 16-byte header = **224 B**
+- KeyValues entry \~ 32-byte key + 200-byte payload + 16-byte header = **240 B** (`ENTRY_SIZE_ESTIMATE`)
+- KeyLists metadata entry \~ 33-byte key + 8-byte value + 16-byte header = **57 B**
+- KeyLists data entry \~ 8-byte synthetic key + 200-byte payload + 16-byte header = **224 B**
 
 `KeyValuesReadBenchmark` populated footprint per profile:
-- `noEviction`: 1 118 481 x 240 B \~= **268 MB across the ring** \~= **\~32 MB / segment** -- exactly fills the hot tier, no spill.
-- `evict30`: 1 597 830 x 240 B \~= **383 MB across the ring** \~= **\~48 MB / segment** -- 30 % overflows to mmap.
+- `noEviction`: 1 118 481 x 240 B \~ **268 MB across the ring** \~ **32 MB / segment** -- exactly fills the hot tier, no spill.
+- `evict30`: 1 597 830 x 240 B \~ **383 MB across the ring** \~ **48 MB / segment** -- 30 % overflows to mmap.
 
 `KeyListsReadBenchmark` populated footprint per profile:
-- `noEviction`: 116 863 x 2 297 B \~= **268 MB across the ring** \~= **\~32 MB / segment** -- fills the hot tier.
-- `evict30`: 166 947 x 2 297 B \~= **383 MB across the ring** \~= **\~48 MB / segment** -- 30 % spills to mmap.
+- `noEviction`: 116 863 x 2 297 B \~ **268 MB across the ring** \~ **32 MB / segment** -- fills the hot tier.
+- `evict30`: 166 947 x 2 297 B \~ **383 MB across the ring** \~ **48 MB / segment** -- 30 % spills to mmap.
 
 `KeyValuesWriteBenchmark` and `KeyListsWriteBenchmark` write the
 same per-profile counts each invocation, so steady-state footprints
@@ -164,7 +164,7 @@ cache = 24 MB shared.
 |                           | `noEviction`                                     | `evict30`                                         |
 |---------------------------|--------------------------------------------------|---------------------------------------------------|
 | Hot tier per segment      | 32MB                                             | 32MB (same)                                       |
-| Op count per invocation   | fits in hot tier                                 | 1 / 0.70 ~= 1.43 x noEviction                     |
+| Op count per invocation   | fits in hot tier                                 | 1 / 0.70 ~ 1.43 x noEviction                     |
 | Working set per segment   | \~32MB                                           | \~48MB                                            |
 | Hot vs mmap               | all in hot tier (0 % spill)                      | 70% hot-resident, 30% spilled to mmap             |
 | Working set vs CPU caches | 32MB exceeds the 24MB SLC -- cache-cold hot path | 32MB exceeds the 24 MB SLC -- cache-cold hot path |
@@ -289,8 +289,8 @@ cost is the same on both sides; the ratio is entirely the work
 multiplier in `append`'s critical path. The extra cost decomposes into:
 
 - **Lock state changes.** `put` does 1 write-lock pair (acquire +
-  release \~=60ns uncontended). `append` does 1 read-lock pair plus
-  *two* write-lock pairs (different segments) \~=180ns. Net extra for
+  release \~60ns uncontended). `append` does 1 read-lock pair plus
+  *two* write-lock pairs (different segments) \~180ns. Net extra for
   `append`: **\~120ns**.
 - **`findSlot` walks.** `put` does 1; `append` does 4. Each walk is a
   metadata-array probe + a `kvBuffer.keyEquals` widened memcmp at a
@@ -299,7 +299,7 @@ multiplier in `append`'s critical path. The extra cost decomposes into:
   key bytes from `kvBuffer` at a slot-specific offset inside the
   per-segment kvBuffer region; with the working set at \~63MB /
   segment (KV) and \~39MB / segment (KeyLists), every walk drags those
-  cache lines from DRAM. **Three extra walks \~= 600-900ns**, mostly
+  cache lines from DRAM. **Three extra walks \~ 600-900ns**, mostly
   DRAM-fetch cost.
 - **Hash compute.** `put` does 1 polynomial hash; `append` does 3
   (prefixed user key twice _(a room for micro-optimization)_ + synthetic key once). Net extra
@@ -583,7 +583,7 @@ in-heap baseline:
 reaches saturation later in wall-clock terms per fixed op count, so its
 averaged score sits above the larger-chunk columns. Read the write delta
 as an allocation-cadence artefact, not a hot-vs-mmap cost. The
-`read` row (**-32 %**) is the clean signal: ~44 % of its data is
+`read` row (**-32 %**) is the clean signal: \~44 % of its data is
 mmap-resident at 65 K, and the mmap probes drag throughput down against
 the all-hot 131 K baseline -- the read-side analogue of the KV
 `evict30` `-19 %` list-load row.
@@ -672,10 +672,20 @@ Techniques to get the most out of `Sequence` for typical workloads:
   with a large batch (e.g. 256); the one `acquirePin` per chunk is
   amortized over the whole batch (see [Cost analysis](#cost-analysis-1)).
 - **Prefer monotonic `append` over `insert` into gaps.** Appends take
-  the lock-free sequential fast path; `Sequence.insert` / `insertBatch`
-  trigger COW of tier snapshots.
+  the lock-free sequential fast path; a single `Sequence.insert` into an
+  existing region pays a full-chunk COW rebuild plus a full spine
+  reconstruction and a snapshot publish.
+- **Batch out-of-order inserts.** When you must insert into gaps, prefer
+  `Sequence.insertBatch` (pre-sorted, non-decreasing orders) over
+  repeated `insert`: it groups entries by target chunk and does one COW
+  rebuild per affected chunk plus a single atomic snapshot publish for
+  the whole batch, instead of a full-chunk rebuild + spine
+  reconstruction + publish per entry -- an O(N) -> O(1) reduction in
+  rebuilds and publishes when many entries land in the same chunk(s).
 - **Overwrite in place.** Use `Sequence.insertOrUpdateEqual` /
   `insertOrUpdateUnique` to replace existing entries without COW growth.
+- **Reuse buffers; the hot path is zero-alloc.** Write data into
+  reusable `AtomicBuffer`s rather than allocating per call.
 - **Size the heap pool to the hot working set.** Once the pool
   saturates, each allocation pays a whole-chunk `copyChunkDataFrom`
   memcpy to mmap (the declining write slope in
