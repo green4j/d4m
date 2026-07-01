@@ -725,7 +725,15 @@ class ConcurrencyStressTest {
                 if (!sequence.append(i, pb, 0, PAYLOAD_SIZE)) {
                     throw new AssertionError("append rejected at seq=" + i);
                 }
-                LockSupport.parkNanos(1_000); // ~1us, like the example
+                // Pace in short bursts (a park roughly once per chunk fill)
+                // so the reader stays on the active tail chunk and pins it
+                // mid-fill. A per-entry parkNanos would be dominated by the
+                // OS timer granularity on shared CI runners (tens of us per
+                // call x 1e6 calls -> tens of seconds), starving the writer
+                // and tripping the reader/join deadlines.
+                if ((i & 0x3F) == 0) {
+                    LockSupport.parkNanos(20_000); // ~20us every 64 entries
+                }
             }
             return null;
         }));
