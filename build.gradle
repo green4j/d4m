@@ -239,11 +239,18 @@ configure([commonProject,
 }
 
 configure(commonProject) {
+    description = 'D4M Common – shared primitives (AtomicBuffer, UnsafeBuffer, bit/byte utilities)'
+
     publishing {
         publications {
             d4mCommon(MavenPublication) {
                 from components.java
                 pom(projectPom)
+                pom.withXml {
+                    if (project.description) {
+                        asNode().appendNode('description', project.description)
+                    }
+                }
             }
         }
 
@@ -279,6 +286,11 @@ configure(kvProject) {
             d4mRest(MavenPublication) {
                 from components.java
                 pom(projectPom)
+                pom.withXml {
+                    if (project.description) {
+                        asNode().appendNode('description', project.description)
+                    }
+                }
             }
         }
 
@@ -314,6 +326,11 @@ configure(sequenceProject) {
             d4mWebsocket(MavenPublication) {
                 from components.java
                 pom(projectPom)
+                pom.withXml {
+                    if (project.description) {
+                        asNode().appendNode('description', project.description)
+                    }
+                }
             }
         }
 
@@ -341,6 +358,8 @@ configure(allProject) {
     apply plugin: 'maven-publish'
     apply plugin: 'signing'
     apply plugin: 'com.github.johnrengelman.shadow'
+
+    description = 'D4M All – bundled jar of d4m-common, d4m-kv, and d4m-sequence'
 
     dependencies {
         api commonProject
@@ -389,6 +408,11 @@ configure(allProject) {
                 artifact sourcesJar
                 artifact javadocJar
                 pom(projectPom)
+                pom.withXml {
+                    if (project.description) {
+                        asNode().appendNode('description', project.description)
+                    }
+                }
                 addDepsFromProjects(pom, [commonProject, kvProject, sequenceProject])
             }
         }
