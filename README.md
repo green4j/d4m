@@ -16,6 +16,21 @@ d4m provides low-latency data structures designed for workloads where data volum
 | [`d4m-benchmark`](d4m-benchmark/README.md) | JMH benchmarks                                                                                                                                                                    |
 | `d4m-example`                              | Usage examples for both modules                                                                                                                                                   |
 
+## Binaries
+
+Binaries for Maven, Ivy, Gradle, and others can be found at
+[https://central.sonatype.com/artifact/io.github.green4j/d4m-all](https://central.sonatype.com/artifact/io.github.green4j/d4m-all).
+
+Example for Maven:
+
+```xml
+<dependency>
+    <groupId>io.github.green4j</groupId>
+    <artifactId>d4m-all</artifactId>
+    <version>${d4m.version}</version>
+</dependency>
+```
+
 ## Building
 
 ```bash
