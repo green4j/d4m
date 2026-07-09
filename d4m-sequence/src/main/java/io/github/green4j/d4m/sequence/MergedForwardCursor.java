@@ -124,7 +124,7 @@ public final class MergedForwardCursor {
      * to a merged consumer that receives the source index of each entry.
      *
      * @param maxEntryCount maximum number of entries to deliver
-     * @param consumer      callback to receive each entry with its source index
+     * @param consumer      callback to receive each entry with its source cursor index
      * @return the number of entries actually delivered
      */
     public int next(final int maxEntryCount,
@@ -189,12 +189,12 @@ public final class MergedForwardCursor {
                             final boolean useMerged) {
         int delivered = 0;
         while (delivered < maxEntryCount && heapSize > 0) {
-            final int chunkIndex = heap[0];
-            if (peekTs[chunkIndex] == EXHAUSTED) {
+            final int cursorIndex = heap[0];
+            if (peekTs[cursorIndex] == EXHAUSTED) {
                 break;
             }
 
-            final EntryConsumer target = useMerged ? wrappers[chunkIndex] : plain;
+            final EntryConsumer target = useMerged ? wrappers[cursorIndex] : plain;
 
             long nextPeerTs = EXHAUSTED;
             if (heapSize > 1) {
@@ -205,14 +205,14 @@ public final class MergedForwardCursor {
             }
 
             final int n;
-            if (peekTs[chunkIndex] < nextPeerTs) {
-                n = cursors[chunkIndex].nextUntil(maxEntryCount - delivered, nextPeerTs, target);
+            if (peekTs[cursorIndex] < nextPeerTs) {
+                n = cursors[cursorIndex].nextUntil(maxEntryCount - delivered, nextPeerTs, target);
             } else {
-                n = cursors[chunkIndex].next(1, target);
+                n = cursors[cursorIndex].next(1, target);
             }
 
-            final long newPeek = cursors[chunkIndex].peekNextOrder();
-            peekTs[chunkIndex] = newPeek;
+            final long newPeek = cursors[cursorIndex].peekNextOrder();
+            peekTs[cursorIndex] = newPeek;
 
             if (n == 0) {
                 if (newPeek == EXHAUSTED) {

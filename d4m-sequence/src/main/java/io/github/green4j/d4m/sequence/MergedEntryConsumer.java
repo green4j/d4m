@@ -27,7 +27,7 @@ import io.github.green4j.d4m.common.AtomicBuffer;
 
 /**
  * Callback for consuming entries from a merged cursor, where each entry
- * is tagged with the index of its originating source sequence.
+ * is tagged with the index of the source cursor that produced it.
  */
 @FunctionalInterface
 public interface MergedEntryConsumer {
@@ -35,14 +35,17 @@ public interface MergedEntryConsumer {
     /**
      * Called for each entry delivered by a merged cursor.
      *
-     * @param sourceIndex index of the source sequence that produced this entry
+     * @param cursorIndex index of the source cursor (its position in the array
+     *                    passed to the merged cursor's constructor, or the
+     *                    corresponding index in {@code create(...)}) that
+     *                    produced this entry
      * @param owner       the sequence the entry belongs to
      * @param order       order of the entry
      * @param buffer      the buffer containing the entry payload
      * @param offset      starting offset of the payload within the buffer
      * @param size        size of the payload in bytes
      */
-    void onEntry(int sourceIndex,
+    void onEntry(int cursorIndex,
                  Sequence owner,
                  long order,
                  AtomicBuffer buffer,

@@ -136,12 +136,12 @@ sequence.insertOrUpdateEqual(order, payload, offset, size, payloadEquals);
 
 ```java
 // Forward iteration
-ForwardCursor cursor = new ForwardCursor(sequence);
-cursor.seekTo(startOrder);
-cursor.next(batchSize, (owner, order, buffer, offset, size) -> {
+ForwardCursor forward = new ForwardCursor(sequence);
+forward.seekTo(startOrder);
+forward.next(batchSize, (owner, order, buffer, offset, size) -> {
     // process entry
 });
-cursor.close();
+forward.close();
 
 // Backward iteration
 BackwardCursor back = new BackwardCursor(sequence);
@@ -152,18 +152,19 @@ back.next(batchSize, (owner, order, buffer, offset, size) -> {
 back.close();
 
 // Bounded range scan
+// ...
 cursor.nextUntil(batchSize, upperBoundOrder, consumer);
 
 // Merge multiple sequences into one ordered stream
 MergedForwardCursor merged = MergedForwardCursor.create(sequenceA, sequenceB);
-merged.next(batchSize, (sourceIndex, owner, order, buffer, offset, size) -> {
+merged.next(batchSize, (cursorIndex, owner, order, buffer, offset, size) -> {
     // entries delivered in global order across sources
 });
 
 // Same shape exists for reverse iteration: MergedBackwardCursor
 ```
 
-`MergedForwardCursor` / `MergedBackwardCursor` run a min/max-heap over the underlying cursors so the global next entry is delivered in O(log N) per step, where N is the number of sources. The consumer signature carries an extra `sourceIndex` so callers know which sequence the entry came from.
+`MergedForwardCursor` / `MergedBackwardCursor` run a min/max-heap over the underlying cursors so the global next entry is delivered in O(log N) per step, where N is the number of sources. The consumer signature carries an extra `cursorIndex` -- the position of the source cursor in the array passed to `create(...)` / the constructor -- so callers know which source the entry came from.
 
 ### Snapshots
 
