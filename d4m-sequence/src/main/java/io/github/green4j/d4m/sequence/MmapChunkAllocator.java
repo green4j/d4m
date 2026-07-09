@@ -51,6 +51,57 @@ import java.util.concurrent.locks.ReentrantLock;
  * accessing unmapped memory.</p>
  */
 public final class MmapChunkAllocator {
+
+    /**
+     * Listener for structural lifecycle events raised by
+     * {@link MmapChunkAllocator}, intended for logging and metrics.
+     *
+     * <p>Threading: {@link #onMemoryMappedFileFolderCleanup} is invoked on the
+     * thread that constructs the allocator, before the constructor returns,
+     * with no lock held. {@link #onMemoryMappedRegionCreated} is invoked while
+     * the allocator's internal region lock is held (from either eager
+     * pre-allocation at construction or a writer thread opening a new region);
+     * the implementation must be quick and must not call back into
+     * {@code allocate}. {@link #onChunkReclaimed} is invoked from
+     * {@code drainPendingReclamation} on a writer thread with no lock held. A
+     * single allocator is typically shared across several {@link Sequence}
+     * instances, so callbacks may originate from multiple writer threads and
+     * the implementation must be thread-safe, fast, and non-blocking.</p>
+     */
+    public interface Listener {
+        /**
+         * Called when a stale memory-mapped file left over from a previous run
+         * is deleted during startup cleanup.
+         *
+         * @param notifier    the allocator instance
+         * @param folder      the folder being cleaned
+         * @param deletedFile the file that was deleted
+         */
+        void onMemoryMappedFileFolderCleanup(MmapChunkAllocator notifier,
+                                             File folder,
+                                             File deletedFile);
+
+        /**
+         * Called when a new memory-mapped region (file) is created and mapped.
+         *
+         * @param notifier the allocator instance
+         * @param file     the file backing the new region
+         * @param fileSize the size of the mapped region in bytes
+         */
+        void onMemoryMappedRegionCreated(MmapChunkAllocator notifier,
+                                         File file,
+                                         long fileSize);
+
+        /**
+         * Called when a chunk is returned to the free list during reclamation.
+         *
+         * @param notifier   the allocator instance
+         * @param chunkEpoch the epoch stamped on the reclaimed chunk
+         */
+        void onChunkReclaimed(MmapChunkAllocator notifier,
+                              long chunkEpoch);
+    }
+
     public static final String MMAP_FILE_PREFIX = "mmap-sequences-";
     public static final String MMAP_FILE_EXTENSION = ".tmp";
 
@@ -76,6 +127,7 @@ public final class MmapChunkAllocator {
     private final long fileSize;
     private final File memoryMappedFileFolder;
     private final AtomicLong epochCounter;
+    private final Listener listener;
     private final AtomicInteger fileSeq = new AtomicInteger();
 
     private final ConcurrentLinkedQueue<Chunk> freeList = new ConcurrentLinkedQueue<>();
@@ -102,9 +154,30 @@ public final class MmapChunkAllocator {
                               final File memoryMappedFileFolder,
                               final boolean preAlloc,
                               final AtomicLong epochCounter) {
+        this(chunkSize, memoryMappedFileFolder, preAlloc, epochCounter, null);
+    }
+
+    /**
+     * Creates a memory-mapped chunk allocator with an optional lifecycle
+     * listener. Cleans up any leftover files from previous runs and optionally
+     * pre-allocates the first mapped region.
+     *
+     * @param chunkSize              size of each chunk in bytes
+     * @param memoryMappedFileFolder directory to store memory-mapped files
+     * @param preAlloc               if {@code true}, the first region is mapped eagerly
+     * @param epochCounter           shared epoch counter for stamping chunks
+     * @param listener               optional listener for lifecycle events, or {@code null}
+     * @throws UncheckedIOException if pre-allocation or cleanup fails
+     */
+    public MmapChunkAllocator(final int chunkSize,
+                              final File memoryMappedFileFolder,
+                              final boolean preAlloc,
+                              final AtomicLong epochCounter,
+                              final Listener listener) {
         this.chunkSize = chunkSize;
         this.epochCounter = epochCounter;
         this.memoryMappedFileFolder = memoryMappedFileFolder;
+        this.listener = listener;
 
         final long cpf = MAX_FILE_SIZE / chunkSize;
         this.chunksPerFile = (int) Math.min(cpf, (long) Integer.MAX_VALUE / chunkSize);
@@ -186,6 +259,9 @@ public final class MmapChunkAllocator {
 
             if (h.chunk.casRefCount(0, -1)) {
                 freeList.offer(h.chunk);
+                if (listener != null) {
+                    listener.onChunkReclaimed(this, h.chunk.getChunkEpoch());
+                }
             } else {
                 final int next = h.retryCount + 1;
                 if (next >= MAX_RECLAIM_RETRIES) {
@@ -257,6 +333,10 @@ public final class MmapChunkAllocator {
                             throw new RuntimeException(
                                     "Failed to delete " + file);
                         }
+                        if (listener != null) {
+                            listener.onMemoryMappedFileFolderCleanup(
+                                    this, memoryMappedFileFolder, file);
+                        }
                     }
                 }
             } catch (final IOException e) {
@@ -291,6 +371,10 @@ public final class MmapChunkAllocator {
                     FileChannel.MapMode.READ_WRITE, 0, fileSize
             );
             nextIdx = 0;
+        }
+
+        if (listener != null) {
+            listener.onMemoryMappedRegionCreated(this, file, fileSize);
         }
     }
 

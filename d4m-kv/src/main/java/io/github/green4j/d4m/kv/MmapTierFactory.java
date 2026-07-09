@@ -46,7 +46,17 @@ import java.nio.file.StandardOpenOption;
 public final class MmapTierFactory implements TierFactory, Closeable {
 
     /**
-     * Listener for lifecycle events raised by {@link MmapTierFactory}.
+     * Listener for structural lifecycle events raised by {@link MmapTierFactory},
+     * intended for logging and metrics.
+     *
+     * <p>Threading: {@link #onMemoryMappedFileFolderCleanup} is invoked during
+     * factory construction on the constructing thread, with no lock held.
+     * {@link #onMemoryTierCreated} and {@link #onMemoryMappedFileTierCreated}
+     * fire when a tier is created on demand -- on a {@link KeyValueRing} this
+     * happens inline on the caller's {@code put} / {@code compute} thread while
+     * that segment's exclusive write lock is held (they may also fire at build
+     * time when the store eagerly prepares mmap files). Implementations must be
+     * fast and non-blocking and must not call back into the store.</p>
      */
     public interface Listener {
         /**

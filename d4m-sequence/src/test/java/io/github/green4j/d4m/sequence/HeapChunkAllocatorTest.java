@@ -104,6 +104,78 @@ class HeapChunkAllocatorTest {
     }
 
     @Nested
+    class Listeners {
+        private final class RecordingListener implements HeapChunkAllocator.Listener {
+            int slabCount;
+            int lastChunksInSlab;
+            int poolExhaustedCount;
+            int reclaimedCount;
+            long lastReclaimedEpoch;
+
+            @Override
+            public void onSlabAllocated(final HeapChunkAllocator notifier,
+                                        final int slabIndex,
+                                        final int slabBytes,
+                                        final int chunksInSlab) {
+                slabCount++;
+                lastChunksInSlab = chunksInSlab;
+            }
+
+            @Override
+            public void onPoolExhausted(final HeapChunkAllocator notifier) {
+                poolExhaustedCount++;
+            }
+
+            @Override
+            public void onChunkReclaimed(final HeapChunkAllocator notifier,
+                                         final long chunkEpoch) {
+                reclaimedCount++;
+                lastReclaimedEpoch = chunkEpoch;
+            }
+        }
+
+        @Test
+        void onSlabAllocatedFiresPerSlab() {
+            final RecordingListener listener = new RecordingListener();
+            // 2 slabs of 4 chunks each
+            new HeapChunkAllocator(CHUNK_SIZE, 2L * SLAB_SIZE, SLAB_SIZE,
+                    new AtomicLong(), listener);
+
+            assertEquals(2, listener.slabCount);
+            assertEquals(SLAB_SIZE / CHUNK_SIZE, listener.lastChunksInSlab);
+        }
+
+        @Test
+        void onPoolExhaustedFiresWhenEmpty() {
+            final RecordingListener listener = new RecordingListener();
+            final HeapChunkAllocator alloc = new HeapChunkAllocator(
+                    CHUNK_SIZE, SLAB_SIZE, SLAB_SIZE, new AtomicLong(), listener);
+            for (int i = 0; i < 4; i++) {
+                assertNotNull(alloc.tryAllocate());
+            }
+            assertEquals(0, listener.poolExhaustedCount);
+
+            assertNull(alloc.tryAllocate());
+            assertEquals(1, listener.poolExhaustedCount);
+        }
+
+        @Test
+        void onChunkReclaimedFiresOnReclamation() {
+            final RecordingListener listener = new RecordingListener();
+            final HeapChunkAllocator alloc = new HeapChunkAllocator(
+                    CHUNK_SIZE, SLAB_SIZE, SLAB_SIZE, new AtomicLong(), listener);
+            final Chunk chunk = alloc.tryAllocate();
+            final long epoch = chunk.getChunkEpoch();
+
+            alloc.submitPendingReclamation(chunk);
+            alloc.drainPendingReclamation();
+
+            assertEquals(1, listener.reclaimedCount);
+            assertEquals(epoch, listener.lastReclaimedEpoch);
+        }
+    }
+
+    @Nested
     class Reclamation {
         @Test
         void reclaimedChunkBecomesAllocatableAgain() {

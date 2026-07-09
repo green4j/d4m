@@ -26,7 +26,16 @@ package io.github.green4j.d4m.kv;
 import io.github.green4j.d4m.common.AtomicBuffer;
 
 /**
- * Callback interface notified when a key-value entry is evicted from a tier or segment.
+ * Listener notified when a key-value entry is evicted from a tier or segment,
+ * intended for logging and metrics.
+ *
+ * <p>Threading: on a {@link KeyValueRing}, {@link #onEviction} is invoked inline
+ * on the caller's {@code put} / {@code compute} thread while that segment's
+ * exclusive write lock is held (a two-key {@code compute} holds two segment write
+ * locks). On a {@link SingleThreadedKeyValueRing} it runs on the single caller
+ * thread with no lock. Implementations must be fast and non-blocking, must not
+ * call back into the store (doing so risks re-entrant locking or deadlock), and
+ * must not retain the supplied {@code keyValue} buffer beyond the call.</p>
  */
 public interface EvictionListener {
 

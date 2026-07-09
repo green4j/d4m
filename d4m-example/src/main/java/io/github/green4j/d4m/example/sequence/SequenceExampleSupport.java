@@ -36,6 +36,8 @@ import io.github.green4j.d4m.sequence.Sequence;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -59,12 +61,126 @@ final class SequenceExampleSupport extends ExampleSupport {
                                 final File mmapDir) {
         final AtomicLong epoch = new AtomicLong();
         final HeapChunkAllocator heap =
-                new HeapChunkAllocator(CHUNK_SIZE, maxHeapBytes, CHUNK_SIZE, epoch);
+                new HeapChunkAllocator(CHUNK_SIZE, maxHeapBytes, CHUNK_SIZE, epoch,
+                        HEAP_LOGGING_LISTENER);
         final MmapChunkAllocator mmap =
-                new MmapChunkAllocator(CHUNK_SIZE, mmapDir, false, epoch);
+                new MmapChunkAllocator(CHUNK_SIZE, mmapDir, false, epoch,
+                        MMAP_LOGGING_LISTENER);
         final EvictionQueue evictQ = new EvictionQueue();
-        return new Sequence(name, CHUNK_SIZE, heap, mmap, evictQ);
+        return new Sequence(name, CHUNK_SIZE, heap, mmap, evictQ,
+                SEQUENCE_LOGGING_LISTENER);
     }
+
+    /**
+     * Demonstrates the observability hooks by logging structural events to
+     * {@code System.out} (equivalent of the KV store's default listener).
+     *
+     * <p>These listeners are attached on the writer thread and some events
+     * (snapshot publish, chunk seal/evict) fire on every chunk roll-over. To
+     * keep this throughput sample readable and avoid perturbing the timed loop,
+     * the frequent callbacks are logged only on their <em>first</em> occurrence
+     * via {@link #logFirst(String, String)}; a production listener would instead
+     * forward every event to a logger or a metrics registry.</p>
+     */
+    private static final Set<String> LOGGED_ONCE = ConcurrentHashMap.newKeySet();
+
+    private static void logFirst(final String key, final String message) {
+        if (LOGGED_ONCE.add(key)) {
+            System.out.println(message + " (further occurrences suppressed)");
+        }
+    }
+
+    private static final HeapChunkAllocator.Listener HEAP_LOGGING_LISTENER =
+            new HeapChunkAllocator.Listener() {
+                @Override
+                public void onSlabAllocated(final HeapChunkAllocator notifier,
+                                            final int slabIndex,
+                                            final int slabBytes,
+                                            final int chunksInSlab) {
+                    System.out.println("Heap slab allocated: index=" + slabIndex
+                            + ", bytes=" + slabBytes + ", chunks=" + chunksInSlab);
+                }
+
+                @Override
+                public void onPoolExhausted(final HeapChunkAllocator notifier) {
+                    logFirst("heap.exhausted", "Heap pool exhausted");
+                }
+
+                @Override
+                public void onChunkReclaimed(final HeapChunkAllocator notifier,
+                                             final long chunkEpoch) {
+                    logFirst("heap.reclaimed",
+                            "Heap chunk reclaimed: epoch=" + chunkEpoch);
+                }
+            };
+
+    private static final MmapChunkAllocator.Listener MMAP_LOGGING_LISTENER =
+            new MmapChunkAllocator.Listener() {
+                @Override
+                public void onMemoryMappedFileFolderCleanup(final MmapChunkAllocator notifier,
+                                                            final File folder,
+                                                            final File deletedFile) {
+                    System.out.println("Mmap file cleanup: " + deletedFile.getAbsolutePath());
+                }
+
+                @Override
+                public void onMemoryMappedRegionCreated(final MmapChunkAllocator notifier,
+                                                        final File file,
+                                                        final long fileSize) {
+                    System.out.println("Mmap region created: " + file.getAbsolutePath()
+                            + ", size=" + fileSize + " bytes");
+                }
+
+                @Override
+                public void onChunkReclaimed(final MmapChunkAllocator notifier,
+                                             final long chunkEpoch) {
+                    logFirst("mmap.reclaimed",
+                            "Mmap chunk reclaimed: epoch=" + chunkEpoch);
+                }
+            };
+
+    private static final Sequence.Listener SEQUENCE_LOGGING_LISTENER =
+            new Sequence.Listener() {
+                @Override
+                public void onChunkSealedForEviction(final Sequence notifier,
+                                                     final long chunkEpoch) {
+                    logFirst("seq.sealed",
+                            "Chunk sealed for eviction: epoch=" + chunkEpoch);
+                }
+
+                @Override
+                public void onChunkEvictedToMmap(final Sequence evictor,
+                                                 final Sequence owner,
+                                                 final long heapEpoch,
+                                                 final long mmapEpoch) {
+                    logFirst("seq.evicted", "Chunk evicted to mmap: owner=" + owner.name()
+                            + ", heapEpoch=" + heapEpoch + ", mmapEpoch=" + mmapEpoch);
+                }
+
+                @Override
+                public void onHeapChunkSwapped(final Sequence notifier,
+                                               final int chunkIndex,
+                                               final long mmapEpoch) {
+                    logFirst("seq.swapped", "Heap chunk swapped: index=" + chunkIndex
+                            + ", mmapEpoch=" + mmapEpoch);
+                }
+
+                @Override
+                public void onCowRebuild(final Sequence notifier,
+                                         final int oldChunkIndex,
+                                         final int newChunkCount) {
+                    logFirst("seq.cow", "COW rebuild: oldIndex=" + oldChunkIndex
+                            + ", newChunks=" + newChunkCount);
+                }
+
+                @Override
+                public void onSnapshotPublished(final Sequence notifier,
+                                                final long version,
+                                                final int chunkCount) {
+                    logFirst("seq.snapshot", "Snapshot published: version=" + version
+                            + ", chunks=" + chunkCount);
+                }
+            };
 
     static File createMmapDir(final String prefix) throws IOException {
         final File dir = Files.createTempDirectory(prefix).toFile();

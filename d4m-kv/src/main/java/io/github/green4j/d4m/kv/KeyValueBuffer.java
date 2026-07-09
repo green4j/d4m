@@ -41,7 +41,15 @@ public class KeyValueBuffer implements
         KeyValueConsuming.KeyValueConsumer<KeyValueConsuming.IndexedKeyValue> {
 
     /**
-     * Listener for insert, update, and eviction events on the buffer.
+     * Listener for structural lifecycle events raised by {@link KeyValueBuffer},
+     * intended for logging and metrics.
+     *
+     * <p>Threading: callbacks are invoked inline on the thread performing the
+     * buffer mutation. On a {@link KeyValueRing} that is the caller's
+     * {@code put} / {@code compute} thread while the owning segment's exclusive
+     * write lock is held; on a {@link SingleThreadedKeyValueRing} it is the
+     * single caller thread with no lock. Implementations must be fast and
+     * non-blocking and must not call back into the store.</p>
      */
     public interface Listener {
         /**

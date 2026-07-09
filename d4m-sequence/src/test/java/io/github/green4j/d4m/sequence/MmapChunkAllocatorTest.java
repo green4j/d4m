@@ -145,6 +145,87 @@ class MmapChunkAllocatorTest {
     }
 
     @Nested
+    class Listeners {
+        private final class RecordingListener implements MmapChunkAllocator.Listener {
+            int cleanupCount;
+            File lastDeleted;
+            int regionCount;
+            File lastRegionFile;
+            long lastRegionSize;
+            int reclaimedCount;
+            long lastReclaimedEpoch;
+
+            @Override
+            public void onMemoryMappedFileFolderCleanup(final MmapChunkAllocator notifier,
+                                                        final File folder,
+                                                        final File deletedFile) {
+                cleanupCount++;
+                lastDeleted = deletedFile;
+            }
+
+            @Override
+            public void onMemoryMappedRegionCreated(final MmapChunkAllocator notifier,
+                                                    final File file,
+                                                    final long fileSize) {
+                regionCount++;
+                lastRegionFile = file;
+                lastRegionSize = fileSize;
+            }
+
+            @Override
+            public void onChunkReclaimed(final MmapChunkAllocator notifier,
+                                         final long chunkEpoch) {
+                reclaimedCount++;
+                lastReclaimedEpoch = chunkEpoch;
+            }
+        }
+
+        @Test
+        void onMemoryMappedRegionCreatedFiresOnFirstAllocate(@TempDir final File dir) {
+            final RecordingListener listener = new RecordingListener();
+            final MmapChunkAllocator alloc = new MmapChunkAllocator(
+                    CHUNK_SIZE, dir, false, new AtomicLong(), listener);
+            assertEquals(0, listener.regionCount);
+
+            alloc.allocate();
+
+            assertEquals(1, listener.regionCount);
+            assertNotNull(listener.lastRegionFile);
+            assertTrue(listener.lastRegionSize > 0);
+        }
+
+        @Test
+        void onMemoryMappedFileFolderCleanupFiresForStaleFiles(@TempDir final File dir)
+                throws java.io.IOException {
+            final File stale = new File(dir,
+                    MmapChunkAllocator.MMAP_FILE_PREFIX + "42"
+                            + MmapChunkAllocator.MMAP_FILE_EXTENSION);
+            assertTrue(stale.createNewFile());
+
+            final RecordingListener listener = new RecordingListener();
+            new MmapChunkAllocator(CHUNK_SIZE, dir, false, new AtomicLong(), listener);
+
+            assertEquals(1, listener.cleanupCount);
+            assertEquals(stale.getName(), listener.lastDeleted.getName());
+        }
+
+        @Test
+        void onChunkReclaimedFiresOnReclamation(@TempDir final File dir) {
+            final RecordingListener listener = new RecordingListener();
+            final MmapChunkAllocator alloc = new MmapChunkAllocator(
+                    CHUNK_SIZE, dir, false, new AtomicLong(), listener);
+            final Chunk chunk = alloc.allocate();
+            final long epoch = chunk.getChunkEpoch();
+
+            alloc.submitPendingReclamation(chunk);
+            alloc.allocate(); // triggers drainPendingReclamation
+
+            assertEquals(1, listener.reclaimedCount);
+            assertEquals(epoch, listener.lastReclaimedEpoch);
+        }
+    }
+
+    @Nested
     class Reclamation {
         @Test
         void reclaimedChunkBecomesAvailable(@TempDir final File dir) {

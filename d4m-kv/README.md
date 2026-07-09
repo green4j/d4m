@@ -154,6 +154,23 @@ MmapTierFactory factory = new MmapTierFactory(
 KeyValueSegment segment = new KeyValueSegment(1, factory, evictionListener);
 ```
 
+## Observability / Listeners
+
+The store exposes optional listeners so applications can drive logging and metrics from structural events without instrumenting internals. Listeners are opt-in and zero-allocation -- each callback receives the raising component as its first `notifier` argument plus primitives / buffers (no boxing).
+
+- **`EvictionListener`** -- `onEviction` fires when an entry leaves the coldest tier and no further tier can be created (i.e. only with a bounded tier chain; the default `KeyValueStorage` builder uses an unbounded chain, so it is never called). See the **Eviction Listener** API section above for how to wire a bounded `KeyValueSegment` that actually fires it.
+- **`MmapTierFactory.Listener`** -- storage-growth lifecycle: `onMemoryMappedFileFolderCleanup` (stale file deleted at startup), `onMemoryTierCreated` (in-memory hot tier created), `onMemoryMappedFileTierCreated` (mmap tier created). Configurable through `KeyValueStorage.Builder.withMmapTierListener` (defaults to a `System.out` logger).
+
+### Threading model
+
+Listeners are invoked inline (synchronously) from the code path that raises the event, so implementations must be fast, non-blocking, must not call back into the store (doing so risks re-entrant locking or deadlock), and must not retain any supplied buffer beyond the call.
+
+| Callback | Invoking thread | Lock held | Notes |
+|----------|-----------------|-----------|-------|
+| `EvictionListener.onEviction` | Caller's `put` / `compute` thread | that segment's exclusive `StampedLock` write lock (two locks for two-key `compute`) | On `SingleThreadedKeyValueRing` there is no lock -- it runs on the single caller thread |
+| `MmapTierFactory.Listener.onMemoryMappedFileFolderCleanup` | Factory-constructing thread | none | Fires during construction, before the store is returned |
+| `MmapTierFactory.Listener.onMemoryTierCreated` / `onMemoryMappedFileTierCreated` | Caller's `put` / `compute` thread (or build thread for eager prep) | that segment's exclusive write lock (none when fired at build time) | Tiers are created on demand while spilling |
+
 ## Configuration Reference
 
 | Builder Option | Default | Description |
@@ -215,11 +232,9 @@ The backing `KeyValues` store must be empty at construction time (the in-memory 
 KeyValueStorage kv = KeyValueStorage.builder().build();
 KeyListStorage  lists  = new KeyListStorage(kv);
 
-// One per writer thread, reused across appends.
 KeyListsWriter writer = lists.newWriter();
 writer.append(keyBuf, 0, keyLen, valueBuf, 0, valueLen);
 
-// One per reader thread, reused across reads.
 ListAccessor accessor = new ListAccessor();
 if (lists.list(accessor, keyBuf, 0, keyLen)) {
     for (int i = 0; i < accessor.size(); i++) {

@@ -40,6 +40,54 @@ public final class HeapChunkAllocator {
     private static final int MAX_RECLAIM_RETRIES = 16;
     private static final int DEFERRED_DRAIN_INTERVAL = 64;
 
+    /**
+     * Listener for structural lifecycle events raised by
+     * {@link HeapChunkAllocator}, intended for logging and metrics.
+     *
+     * <p>Threading: {@link #onSlabAllocated} is invoked on the thread that
+     * constructs the allocator, before the constructor returns, with no lock
+     * held. {@link #onPoolExhausted} and {@link #onChunkReclaimed} are invoked
+     * from {@code tryAllocate} / {@code drainPendingReclamation} on a writer
+     * thread. A single allocator is typically shared across several
+     * {@link Sequence} instances, so these two callbacks may be invoked
+     * concurrently from multiple writer threads and are not serialised by any
+     * lock; the implementation must be thread-safe, fast, non-blocking, and
+     * must not call back into the allocator.</p>
+     */
+    public interface Listener {
+        /**
+         * Called once per slab as the free pool is pre-allocated during
+         * construction.
+         *
+         * @param notifier      the allocator instance
+         * @param slabIndex     the zero-based index of the slab
+         * @param slabBytes     the size of the slab in bytes
+         * @param chunksInSlab  the number of chunks carved from the slab
+         */
+        void onSlabAllocated(HeapChunkAllocator notifier,
+                             int slabIndex,
+                             int slabBytes,
+                             int chunksInSlab);
+
+        /**
+         * Called when {@code tryAllocate} finds the free pool empty and
+         * returns {@code null}, signalling heap pressure that forces eviction
+         * or an mmap fallback.
+         *
+         * @param notifier the allocator instance
+         */
+        void onPoolExhausted(HeapChunkAllocator notifier);
+
+        /**
+         * Called when a chunk is returned to the free pool during reclamation.
+         *
+         * @param notifier   the allocator instance
+         * @param chunkEpoch the epoch stamped on the reclaimed chunk
+         */
+        void onChunkReclaimed(HeapChunkAllocator notifier,
+                              long chunkEpoch);
+    }
+
     private static final class Node {
         final Chunk chunk;
         final Node next;
@@ -54,6 +102,7 @@ public final class HeapChunkAllocator {
 
     private final int chunkSize;
     private final AtomicLong epochCounter;
+    private final Listener listener;
 
     private final AtomicReference<Node> freeStack = new AtomicReference<>();
     private final AtomicReference<Node> pendingReclamation = new AtomicReference<>();
@@ -74,8 +123,28 @@ public final class HeapChunkAllocator {
                               final long maxHeapBytes,
                               final int slabSize,
                               final AtomicLong epochCounter) {
+        this(chunkSize, maxHeapBytes, slabSize, epochCounter, null);
+    }
+
+    /**
+     * Creates a heap chunk allocator with an optional lifecycle listener,
+     * pre-allocating slabs up to the specified maximum heap budget.
+     *
+     * @param chunkSize    size of each chunk in bytes
+     * @param maxHeapBytes maximum total heap memory to allocate
+     * @param slabSize     size of each contiguous slab allocation
+     * @param epochCounter shared epoch counter for stamping chunks
+     * @param listener     optional listener for lifecycle events, or {@code null}
+     * @throws IllegalArgumentException if {@code slabSize < chunkSize}
+     */
+    public HeapChunkAllocator(final int chunkSize,
+                              final long maxHeapBytes,
+                              final int slabSize,
+                              final AtomicLong epochCounter,
+                              final Listener listener) {
         this.chunkSize = chunkSize;
         this.epochCounter = epochCounter;
+        this.listener = listener;
 
         final int perSlab = slabSize / chunkSize;
         if (perSlab < 1) {
@@ -92,6 +161,9 @@ public final class HeapChunkAllocator {
                 final AtomicBuffer buf = new UnsafeBuffer(slab.slice());
                 push(freeStack, new Chunk(buf), 0);
                 slab.clear();
+            }
+            if (listener != null) {
+                listener.onSlabAllocated(this, s, realSlab, perSlab);
             }
         }
     }
@@ -116,6 +188,8 @@ public final class HeapChunkAllocator {
         final Chunk chunk = pop(freeStack);
         if (chunk != null) {
             stampEpoch(chunk);
+        } else if (listener != null) {
+            listener.onPoolExhausted(this);
         }
         return chunk;
     }
@@ -155,6 +229,9 @@ public final class HeapChunkAllocator {
 
             if (h.chunk.casRefCount(0, -1)) {
                 push(freeStack, h.chunk, 0);
+                if (listener != null) {
+                    listener.onChunkReclaimed(this, h.chunk.getChunkEpoch());
+                }
             } else {
                 final int next = h.retryCount + 1;
                 if (next >= MAX_RECLAIM_RETRIES) {

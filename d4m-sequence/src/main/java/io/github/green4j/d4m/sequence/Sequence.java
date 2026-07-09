@@ -40,6 +40,84 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * insert-or-update (upsert) operations via copy-on-write rebuilds.</p>
  */
 public final class Sequence {
+
+    /**
+     * Listener for structural lifecycle events raised by a {@link Sequence},
+     * intended for logging and metrics.
+     *
+     * <p>Threading: all callbacks are invoked inline on the single writer
+     * thread during a mutation call (such as {@code append} or one of the
+     * {@code insert} variants), with no lock held (the sequence uses lock-free
+     * snapshot publication). One exception to "the owner's own thread" is
+     * {@link #onChunkEvictedToMmap}: because heap-to-mmap eviction is
+     * cooperative, it is raised by whichever sequence's writer thread happened
+     * to run the eviction, which may differ from the evicted chunk's
+     * {@code owner}; it is still delivered on a single writer thread with no
+     * lock held. Implementations must be fast and non-blocking and must not
+     * re-enter the sequence's mutating methods.</p>
+     */
+    public interface Listener {
+        /**
+         * Called when a full chunk is sealed and enqueued as a candidate for
+         * eviction to memory-mapped storage.
+         *
+         * @param notifier   the sequence that sealed the chunk
+         * @param chunkEpoch the epoch stamped on the sealed chunk
+         */
+        void onChunkSealedForEviction(Sequence notifier,
+                                      long chunkEpoch);
+
+        /**
+         * Called when a heap-backed chunk has been copied to a freshly
+         * allocated mmap chunk during cooperative eviction.
+         *
+         * @param evictor   the sequence whose writer thread performed the eviction
+         * @param owner     the sequence that owns the evicted chunk
+         * @param heapEpoch the epoch of the source heap chunk
+         * @param mmapEpoch the epoch of the destination mmap chunk
+         */
+        void onChunkEvictedToMmap(Sequence evictor,
+                                  Sequence owner,
+                                  long heapEpoch,
+                                  long mmapEpoch);
+
+        /**
+         * Called when the owning sequence replaces a heap chunk reference with
+         * its evicted mmap counterpart in the writer-owned spine.
+         *
+         * @param notifier   the sequence performing the swap
+         * @param chunkIndex the spine index that was swapped
+         * @param mmapEpoch  the epoch of the mmap chunk now installed
+         */
+        void onHeapChunkSwapped(Sequence notifier,
+                                int chunkIndex,
+                                long mmapEpoch);
+
+        /**
+         * Called when a copy-on-write rebuild replaces one chunk with one or
+         * more freshly built chunks.
+         *
+         * @param notifier      the sequence performing the rebuild
+         * @param oldChunkIndex the spine index of the chunk being replaced
+         * @param newChunkCount the number of chunks spliced in
+         */
+        void onCowRebuild(Sequence notifier,
+                          int oldChunkIndex,
+                          int newChunkCount);
+
+        /**
+         * Called after a new snapshot has been published (on chunk roll-over,
+         * heap-to-mmap swap, or COW rebuild).
+         *
+         * @param notifier   the sequence that published the snapshot
+         * @param version    the strictly increasing snapshot version
+         * @param chunkCount the number of chunks visible in the new snapshot
+         */
+        void onSnapshotPublished(Sequence notifier,
+                                 long version,
+                                 int chunkCount);
+    }
+
     // Writer-owned reusable structures for
     // Different search and rebuild operations
     private final EntrySearch entrySearch = new EntrySearch();
@@ -52,6 +130,7 @@ public final class Sequence {
     private final HeapChunkAllocator heap;
     private final MmapChunkAllocator mmap;
     private final EvictionQueue evictQ;
+    private final Listener listener;
     private final ConcurrentLinkedQueue<PendingSwap> pendingSwaps =
             new ConcurrentLinkedQueue<>(); // can be accessed from another writers/threads
     // While cooperative eviction from evictQ
@@ -117,12 +196,32 @@ public final class Sequence {
                     final HeapChunkAllocator heap,
                     final MmapChunkAllocator mmap,
                     final EvictionQueue evictQ) {
+        this(name, chunkSize, heap, mmap, evictQ, null);
+    }
+
+    /**
+     * Creates a new sequence with an optional lifecycle listener.
+     *
+     * @param name      name of the sequence
+     * @param chunkSize size in bytes of each chunk (header + data)
+     * @param heap      allocator for heap-backed chunks
+     * @param mmap      allocator for memory-mapped chunks
+     * @param evictQ    shared eviction queue for heap-to-mmap migration
+     * @param listener  optional listener for lifecycle events, or {@code null}
+     */
+    public Sequence(final String name,
+                    final int chunkSize,
+                    final HeapChunkAllocator heap,
+                    final MmapChunkAllocator mmap,
+                    final EvictionQueue evictQ,
+                    final Listener listener) {
         this.name = name;
         this.chunkSize = chunkSize;
         this.dataCap = chunkSize - Chunk.HEADER_SIZE;
         this.heap = heap;
         this.mmap = mmap;
         this.evictQ = evictQ;
+        this.listener = listener;
         this.snapshot = ChunkSnapshot.EMPTY;
     }
 
@@ -1142,6 +1241,9 @@ public final class Sequence {
                 setChunkAt(idx, swap.newMmapChunk);
                 setEpochAt(idx, swap.newMmapEpoch);
                 publishSnapshot();
+                if (listener != null) {
+                    listener.onHeapChunkSwapped(this, idx, swap.newMmapEpoch);
+                }
                 drainSwapSearchStart = idx + 1;
                 heap.submitPendingReclamation(swap.oldHeapChunk);
             } else {
@@ -1558,13 +1660,17 @@ public final class Sequence {
      * ensure head-offset bookkeeping is consistent.
      */
     private void publishSnapshot() {
-        snapshot = new ChunkSnapshot(
+        final ChunkSnapshot published = new ChunkSnapshot(
                 chunkSpine,
                 epochSpine,
                 chunksCount - writerHeadOffset,
                 writerHeadOffset,
                 snapshotVersion++
         );
+        snapshot = published;
+        if (listener != null) {
+            listener.onSnapshotPublished(this, published.version(), published.size());
+        }
     }
 
     /**
@@ -1642,6 +1748,9 @@ public final class Sequence {
             }
         }
         publishSnapshot();
+        if (listener != null) {
+            listener.onCowRebuild(this, chunkIndex, chunksToPub.length);
+        }
 
         if (!updatingChunk.casEvictionState(
                 Chunk.EVICTION_NONE, Chunk.EVICTION_IN_PROGRESS
@@ -1790,6 +1899,10 @@ public final class Sequence {
                 mmapChunk.copyChunkDataFrom(heapChunk);
                 mmapChunk.putEntryCountOrdered(heapChunk.getEntryCount());
                 e.owner.pendingSwaps.offer(new PendingSwap(heapChunk, mmapChunk));
+                if (listener != null) {
+                    listener.onChunkEvictedToMmap(
+                            this, e.owner, e.epoch, mmapChunk.getChunkEpoch());
+                }
             } finally {
                 CursorSupport.decRef(heapChunk);
             }
@@ -1808,6 +1921,9 @@ public final class Sequence {
         if (chunk.isHeapBased()
                 && chunk.casEvictionState(Chunk.EVICTION_NONE, Chunk.EVICTION_CANDIDATE)) {
             evictQ.enqueue(new EvictionQueue.Item(this, chunk));
+            if (listener != null) {
+                listener.onChunkSealedForEviction(this, chunk.getChunkEpoch());
+            }
         }
     }
 

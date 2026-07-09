@@ -176,6 +176,40 @@ long version = snap.version();
 Chunk chunk = snap.chunk(0); // direct dereference: writer-thread only
 ```
 
+## Observability / Listeners
+
+Each main component exposes an optional listener so applications can drive logging and metrics from structural events without instrumenting internals. Listeners are opt-in: every component keeps its original constructor and adds an overload that accepts a listener; passing `null` (or using the original constructor) disables notifications. Callbacks are zero-allocation -- each one receives the raising component as its first `notifier` argument plus primitives (no boxing) -- and cover only coarse/structural events, never the per-entry `append` hot path.
+
+- **`HeapChunkAllocator.Listener`** -- `onSlabAllocated` (free pool pre-allocated at construction), `onPoolExhausted` (heap pressure forcing eviction/mmap fallback), `onChunkReclaimed` (chunk returned to the free pool).
+- **`MmapChunkAllocator.Listener`** -- `onMemoryMappedFileFolderCleanup` (stale file deleted at startup), `onMemoryMappedRegionCreated` (new mapped file), `onChunkReclaimed` (chunk returned to the free list).
+- **`Sequence.Listener`** -- `onChunkSealedForEviction`, `onChunkEvictedToMmap`, `onHeapChunkSwapped`, `onCowRebuild`, `onSnapshotPublished`.
+
+```java
+Sequence.Listener listener = new Sequence.Listener() {
+    // implement the callbacks you care about; forward to a logger / metrics registry
+    // ...
+};
+
+HeapChunkAllocator heap = new HeapChunkAllocator(
+        chunkSize, maxHeapBytes, slabSize, epochCounter, heapListener);
+MmapChunkAllocator mmap = new MmapChunkAllocator(
+        chunkSize, mmapDir, /* preAlloc */ false, epochCounter, mmapListener);
+Sequence sequence = new Sequence(name, chunkSize, heap, mmap, evictQ, listener);
+```
+
+### Threading model
+
+Listeners are invoked inline (synchronously) from the code path that raises the event, so implementations must be fast, non-blocking, and must not re-enter the sequence's mutating methods or the allocator that raised the event.
+
+| Callback | Invoking thread | Lock held | Notes |
+|----------|-----------------|-----------|-------|
+| `HeapChunkAllocator.onSlabAllocated` | Allocator-constructing thread | none | Fires before the constructor returns |
+| `HeapChunkAllocator.onPoolExhausted` / `onChunkReclaimed` | A writer thread | none (lock-free) | One allocator is shared across sequences, so these may fire concurrently from several writer threads -- the implementation must be thread-safe |
+| `MmapChunkAllocator.onMemoryMappedFileFolderCleanup` | Allocator-constructing thread | none | Fires before the constructor returns |
+| `MmapChunkAllocator.onMemoryMappedRegionCreated` | Constructing or a writer thread | allocator region lock held | Must not call back into `allocate` |
+| `MmapChunkAllocator.onChunkReclaimed` | A writer thread | none (lock-free) | Shared allocator -> must be thread-safe |
+| `Sequence.*` | The single writer thread | none | `onChunkEvictedToMmap` is cooperative: it is raised by whichever sequence's writer ran the eviction, which may differ from the evicted chunk's `owner` |
+
 ## Concurrency Model
 
 - **Single writer** -- all mutation methods (`append`, `insert`, `insertBatch`, etc.) must be called from a single thread.
