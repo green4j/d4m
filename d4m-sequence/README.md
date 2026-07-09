@@ -160,7 +160,7 @@ MergedForwardCursor merged = MergedForwardCursor.create(sequenceA, sequenceB);
 merged.next(batchSize, (cursorIndex, owner, order, buffer, offset, size) -> {
     // entries delivered in global order across sources
 });
-
+merged.close();
 // Same shape exists for reverse iteration: MergedBackwardCursor
 ```
 

@@ -30,7 +30,7 @@ package io.github.green4j.d4m.sequence;
  *
  * <p>Not thread-safe - intended for single-reader use.</p>
  */
-public final class MergedForwardCursor {
+public final class MergedForwardCursor implements AutoCloseable {
     private static final long EXHAUSTED = Long.MAX_VALUE;
 
     private final ForwardCursor[] cursors;
@@ -178,6 +178,7 @@ public final class MergedForwardCursor {
     /**
      * Closes all underlying cursors, releasing their pinned resources.
      */
+    @Override
     public void close() {
         for (final ForwardCursor c : cursors) {
             c.close();

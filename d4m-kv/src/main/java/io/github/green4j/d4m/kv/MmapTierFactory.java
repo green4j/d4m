@@ -26,7 +26,6 @@ package io.github.green4j.d4m.kv;
 import io.github.green4j.d4m.common.AtomicBuffer;
 import io.github.green4j.d4m.common.UnsafeBuffer;
 
-import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -43,7 +42,7 @@ import java.nio.file.StandardOpenOption;
  * and subsequent tiers backed by memory-mapped files. On construction, any stale
  * memory-mapped files from a previous run are cleaned up.
  */
-public final class MmapTierFactory implements TierFactory, Closeable {
+public final class MmapTierFactory implements TierFactory, AutoCloseable {
 
     /**
      * Listener for structural lifecycle events raised by {@link MmapTierFactory},
@@ -187,7 +186,8 @@ public final class MmapTierFactory implements TierFactory, Closeable {
     }
 
     /**
-     * {@inheritDoc}
+     * No-op; mapped files are intentionally never unmapped, so there is
+     * nothing to release.
      */
     @Override
     public void close() {

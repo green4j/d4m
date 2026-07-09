@@ -31,7 +31,7 @@ package io.github.green4j.d4m.sequence;
  *
  * <p>Not thread-safe - intended for single-reader use.</p>
  */
-public final class ForwardCursor {
+public final class ForwardCursor implements AutoCloseable {
     private final Sequence sequence;
 
     // Pre-allocated pin states (no allocation on hot path)
@@ -415,6 +415,7 @@ public final class ForwardCursor {
      * Releases all pinned resources held by this cursor. The cursor
      * should not be used after calling this method.
      */
+    @Override
     public void close() {
         CursorSupport.releasePin(pinState);
         CursorSupport.releasePin(peekPin);
