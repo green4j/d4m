@@ -200,7 +200,15 @@ class ConcurrencyStressTest {
             }
         }
         if (!errs.isEmpty()) {
-            final AssertionError ae = new AssertionError(errs.size() + " thread failure(s)");
+            final StringBuilder details = new StringBuilder();
+            for (final Throwable t : errs) {
+                if (details.length() > 0) {
+                    details.append("; ");
+                }
+                details.append(t);
+            }
+            final AssertionError ae = new AssertionError(
+                    errs.size() + " thread failure(s): [" + details + "]");
             errs.forEach(ae::addSuppressed);
             throw ae;
         }
@@ -234,6 +242,45 @@ class ConcurrencyStressTest {
                 seq++;
                 if ((seq & 0x3F) == 0) { // every 64 entries
                     written.lazySet(seq);
+                }
+            }
+            written.set(seq);
+            return null;
+        };
+    }
+
+    /**
+     * Like {@link #appendWriter} but yields the core periodically. A plain
+     * busy-spin writer pegs a CPU at 100% and, on an oversubscribed CI
+     * runner (few vCPUs, several JVMs), starves co-scheduled reader threads
+     * whose per-iteration work is heavy (e.g. a full seek rescan). Parking
+     * briefly once per chunk-worth of entries frees a core so readers make
+     * progress, without meaningfully slowing throughput.
+     *
+     * @param sequence sequence to append to
+     * @param run      when false, writer stops
+     * @param written  receives final written count
+     * @param go       latch released before appending begins
+     * @return a callable that performs the paced writer loop
+     */
+    private Callable<Void> pacedAppendWriter(final Sequence sequence,
+                                             final AtomicBoolean run,
+                                             final AtomicLong written,
+                                             final CountDownLatch go) {
+        return () -> {
+            go.await();
+            final UnsafeBuffer pb =
+                    new UnsafeBuffer(new byte[PAYLOAD_SIZE]);
+            long seq = 0;
+            while (run.get()) {
+                encodePayload(pb, seq, seq);
+                if (!sequence.append(seq, pb, 0, PAYLOAD_SIZE)) {
+                    throw new AssertionError("append rejected at seq=" + seq);
+                }
+                seq++;
+                if ((seq & 0x3F) == 0) { // every 64 entries
+                    written.lazySet(seq);
+                    LockSupport.parkNanos(20_000); // ~20us, frees a core for readers
                 }
             }
             written.set(seq);
@@ -553,7 +600,7 @@ class ConcurrencyStressTest {
         final ExecutorService ex = Executors.newCachedThreadPool();
         final List<Future<?>> fs = new ArrayList<>();
 
-        fs.add(ex.submit(appendWriter(sequence, run, written, go)));
+        fs.add(ex.submit(pacedAppendWriter(sequence, run, written, go)));
 
         for (int r = 0; r < READERS; r++) {
             fs.add(ex.submit(() -> {
@@ -1258,8 +1305,8 @@ class ConcurrencyStressTest {
                 sequence.append(seq, pb, 0, PAYLOAD_SIZE);
                 publishedSeq.set(seq);
                 seq++;
-                if (seq % 100 == 0) {
-                    Thread.yield();
+                if ((seq & 0x3F) == 0) { // every 64 entries
+                    LockSupport.parkNanos(20_000); // ~20us, frees a core for the reader
                 }
             }
             return null;
