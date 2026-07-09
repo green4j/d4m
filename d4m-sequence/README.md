@@ -167,7 +167,7 @@ merged.next(batchSize, (sourceIndex, owner, order, buffer, offset, size) -> {
 
 ### Snapshots
 
-`sequence.snapshot()` is itself a non-blocking volatile read and is safe from any thread, but the **direct `Chunk` handles** it returns are only safe to dereference from the writer thread (or while holding a pin via `CursorSupport`). The supported reader path is through cursors, which acquire pins for you.
+`sequence.snapshot()` is itself a non-blocking volatile read and is safe to call from any thread, but the **direct `Chunk` handles** it returns are only safe to dereference from the writer thread.
 
 ```java
 ChunkSnapshot snap = sequence.snapshot();
