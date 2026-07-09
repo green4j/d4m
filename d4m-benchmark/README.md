@@ -538,27 +538,30 @@ of (a) mmap pressure at 65 K, (b) TLB / prefetch friction at 524 K on
 
 ### Results
 
-Scope: `writeProfile=APPEND_100`, forward cursor. The three chunkSize
-columns split into an eviction column (65 K, where the pool overflows
-during pre-population) and two hot-tier columns (131 K, 524 K, where the
-pre-populated set fits in the heap pool). See the **Heap fit** table above.
+Scope: `writeProfile=APPEND_100`, forward cursor. The three columns are
+chunk sizes. Only `SequenceHistoricalReadBenchmark.read` has a fixed
+hot-vs-mmap split -- its pre-populated 65 K set spills to mmap while the
+131 K and 524 K sets fit the heap pool (see the **Heap fit** table
+above). The `¹` rows have no such split: they start from an empty pool
+and allocate monotonically throughout the timed loop.
 
-| Benchmark                                        | Sequences | `eviction, 65 K` | `hot, 131 K` | `hot, 524 K` |
-|--------------------------------------------------|-----------|-----------------:|-------------:|-------------:|
-| `SequenceWriteBenchmark.write` ¹                 | 1         |            6.11M |        3.00M |        2.89M |
-| `SequenceWriteBenchmark.write` ¹                 | 1024      |            5.92M |        5.27M |        2.26M |
-| `SequenceHistoricalReadBenchmark.read`           | 1024      |          112.66M |      166.75M |      144.72M |
-| `SequenceRealtimeBroadcastBenchmark.broadcast` ¹ | 1         |          172.48M |      285.71M |      252.98M |
-| `SequenceScaledBroadcastBenchmark.twoReaders` ¹  | 1024      |          152.19M |      147.10M |      132.84M |
+| Benchmark                                        | Sequences | `65 K` | `131 K` | `524 K` |
+|--------------------------------------------------|-----------|-------:|--------:|--------:|
+| `SequenceWriteBenchmark.write` ¹                 | 1         |   6.11M |    3.00M |    2.89M |
+| `SequenceWriteBenchmark.write` ¹                 | 1024      |   5.92M |    5.27M |    2.26M |
+| `SequenceHistoricalReadBenchmark.read`           | 1024      | 112.66M |  166.75M |  144.72M |
+| `SequenceRealtimeBroadcastBenchmark.broadcast` ¹ | 1         | 172.48M |  285.71M |  252.98M |
+| `SequenceScaledBroadcastBenchmark.twoReaders` ¹  | 1024      | 152.19M |  147.10M |  132.84M |
 
 ¹ Rows marked ¹ start from an empty pool and allocate monotonically
-throughout the timed loop, so the "hot / eviction" label describes what
-the column *would* look like if it were used for pre-populated reads --
-not what the timed loop actually experiences. All three columns spill to
+throughout the timed loop, so the reported score is the average of a
+declining throughput slope as the pool saturates and eviction kicks in --
+not a steady hot- or eviction-tier number. All three columns spill to
 mmap eventually for these rows; the 65 K column just reaches saturation
-sooner. `SequenceHistoricalReadBenchmark.read` is the only row where
-"hot" / "eviction" describes the timed loop directly (it only reads
-pre-populated data).
+sooner. `SequenceHistoricalReadBenchmark.read` (the only unmarked row)
+is the one row with a fixed hot/mmap split, because it only reads
+pre-populated data. See the per-benchmark interpretation above for each
+row's exact behavior.
 
 Mixed-profile and per-cursor-type rows are excluded from this headline table
 to keep it readable -- re-run with the full JMH args above to get the complete
@@ -568,9 +571,10 @@ matrix.
 
 Only `SequenceHistoricalReadBenchmark.read` compares eviction against
 hot like-for-like (it reads a fixed pre-populated set; the ¹ rows
-allocate monotonically and saturate all three columns eventually). For
-that row the delta below isolates the mmap-spill cost against the
-in-heap baseline:
+allocate monotonically and saturate all three columns eventually). This
+section is scoped to that comparison, so here the `eviction, 65 K` /
+`hot, 131 K` column labels are meaningful. For the `read` row the delta
+below isolates the mmap-spill cost against the in-heap baseline:
 
 | Benchmark                              | Sequences | `eviction, 65 K` | `hot, 131 K` |       Delta |
 |----------------------------------------|-----------|-----------------:|-------------:|------------:|

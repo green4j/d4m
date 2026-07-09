@@ -87,18 +87,20 @@ in [`d4m-benchmark/README.md`](d4m-benchmark/README.md).
 ### `d4m-sequence` (ops/sec, `writeProfile=APPEND_100`, forward cursor)
 
 Chunks come from a two-tier allocator (heap pool + mmap overflow). The
-65 K column has the pre-populated set spilling to mmap (~44 % on mmap);
-the 131 K and 524 K columns fit in the heap pool. See
+columns are chunk sizes. Only `SequenceHistoricalReadBenchmark.read` has
+a fixed hot-vs-mmap split (its pre-populated 65 K set spills ~44 % to
+mmap; the 131 K and 524 K sets fit the heap pool); the other rows start
+from an empty pool and allocate monotonically. See
 [`d4m-benchmark/README.md`](d4m-benchmark/README.md) for the fit table
-and per-benchmark hot-vs-mmap interpretation.
+and per-benchmark interpretation.
 
-| Benchmark                                        | Sequences | `eviction, 65 K` | `hot, 131 K` | `hot, 524 K` |
-|--------------------------------------------------|-----------|-----------------:|-------------:|-------------:|
-| `SequenceWriteBenchmark.write`                   | 1         |            6.11M |        3.00M |        2.89M |
-| `SequenceWriteBenchmark.write`                   | 1024      |            5.92M |        5.27M |        2.26M |
-| `SequenceHistoricalReadBenchmark.read`           | 1024      |          112.66M |      166.75M |      144.72M |
-| `SequenceRealtimeBroadcastBenchmark.broadcast`   | 1         |          172.48M |      285.71M |      252.98M |
-| `SequenceScaledBroadcastBenchmark.twoReaders`    | 1024      |          152.19M |      147.10M |      132.84M |
+| Benchmark                                        | Sequences | `65 K` | `131 K` | `524 K` |
+|--------------------------------------------------|-----------|-------:|--------:|--------:|
+| `SequenceWriteBenchmark.write`                   | 1         |   6.11M |    3.00M |    2.89M |
+| `SequenceWriteBenchmark.write`                   | 1024      |   5.92M |    5.27M |    2.26M |
+| `SequenceHistoricalReadBenchmark.read`           | 1024      | 112.66M |  166.75M |  144.72M |
+| `SequenceRealtimeBroadcastBenchmark.broadcast`   | 1         | 172.48M |  285.71M |  252.98M |
+| `SequenceScaledBroadcastBenchmark.twoReaders`    | 1024      | 152.19M |  147.10M |  132.84M |
 
 ## License
 
