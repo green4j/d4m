@@ -478,8 +478,8 @@ Per-chunk data capacity = `chunkSize - HEADER_SIZE` where `HEADER_SIZE = 256`.
 |   524 288 |             2 339 |
 
 **Heap pool capacity in chunks** (`HeapChunkAllocator` pre-allocates
-`ceil(maxHeapBytes / chunkSize)` slabs because the benchmark support passes
-`slabSize = chunkSize`):
+`floor(maxHeapBytes / chunkSize)` slabs because the benchmark support passes
+`chunksPerSlab = 1`):
 
 | `sequenceCount` |  65 536 | 131 072 | 524 288 |
 |-----------------|--------:|--------:|--------:|

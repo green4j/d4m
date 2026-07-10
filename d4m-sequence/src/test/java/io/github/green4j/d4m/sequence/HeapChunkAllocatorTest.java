@@ -40,9 +40,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class HeapChunkAllocatorTest {
     private static final int CHUNK_SIZE = 1024;
     private static final int SLAB_SIZE = 4096;
+    private static final int CHUNKS_PER_SLAB = SLAB_SIZE / CHUNK_SIZE;
 
     private HeapChunkAllocator makeAllocator(final long maxHeap) {
-        return new HeapChunkAllocator(CHUNK_SIZE, maxHeap, SLAB_SIZE, new AtomicLong());
+        return new HeapChunkAllocator(CHUNK_SIZE, CHUNKS_PER_SLAB, maxHeap, new AtomicLong());
     }
 
     @Nested
@@ -138,18 +139,18 @@ class HeapChunkAllocatorTest {
         void onSlabAllocatedFiresPerSlab() {
             final RecordingListener listener = new RecordingListener();
             // 2 slabs of 4 chunks each
-            new HeapChunkAllocator(CHUNK_SIZE, 2L * SLAB_SIZE, SLAB_SIZE,
+            new HeapChunkAllocator(CHUNK_SIZE, CHUNKS_PER_SLAB, 2L * SLAB_SIZE,
                     new AtomicLong(), listener);
 
             assertEquals(2, listener.slabCount);
-            assertEquals(SLAB_SIZE / CHUNK_SIZE, listener.lastChunksInSlab);
+            assertEquals(CHUNKS_PER_SLAB, listener.lastChunksInSlab);
         }
 
         @Test
         void onPoolExhaustedFiresWhenEmpty() {
             final RecordingListener listener = new RecordingListener();
             final HeapChunkAllocator alloc = new HeapChunkAllocator(
-                    CHUNK_SIZE, SLAB_SIZE, SLAB_SIZE, new AtomicLong(), listener);
+                    CHUNK_SIZE, CHUNKS_PER_SLAB, SLAB_SIZE, new AtomicLong(), listener);
             for (int i = 0; i < 4; i++) {
                 assertNotNull(alloc.tryAllocate());
             }
@@ -163,7 +164,7 @@ class HeapChunkAllocatorTest {
         void onChunkReclaimedFiresOnReclamation() {
             final RecordingListener listener = new RecordingListener();
             final HeapChunkAllocator alloc = new HeapChunkAllocator(
-                    CHUNK_SIZE, SLAB_SIZE, SLAB_SIZE, new AtomicLong(), listener);
+                    CHUNK_SIZE, CHUNKS_PER_SLAB, SLAB_SIZE, new AtomicLong(), listener);
             final Chunk chunk = alloc.tryAllocate();
             final long epoch = chunk.getChunkEpoch();
 

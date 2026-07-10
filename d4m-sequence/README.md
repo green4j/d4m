@@ -87,6 +87,47 @@ The writer doesn't drain pending swaps after every single `append`. It checks ev
 
 `MmapChunkAllocator` writes into memory-mapped files that grow monotonically and are **never unmapped**. The OS reclaims pages through its own virtual-memory lifecycle. This is intentional: readers may hold pinned chunks pointing into a mapped region indefinitely; unmapping would risk a SIGBUS. Files are created with `deleteOnExit`, and stale files from previous runs are cleaned up at allocator construction.
 
+## Memory Consumption
+
+Sequence memory is allocated in **whole chunks** — a fixed-size `chunkSize` block (256 KB in the examples). The footprint is therefore always a multiple of `chunkSize`, whether the chunk currently lives on the heap or in an mmap file. All sizes below are exact byte counts; `1M = 1024 * 1024` bytes.
+
+Two constants from `Chunk` drive the math:
+
+- **Chunk header**: `HEADER_SIZE = 256` bytes reserved at the start of every chunk (the two-cache-line identity/writer-metadata block).
+- **Per-entry header**: `ENTRY_HEADER_SIZE = 24` bytes, and payloads are 8-byte aligned, so one entry with payload `p` costs `E = align8(24 + p)`, where `align8(x) = (x + 7) & ~7`.
+
+### Storing `N` entries in a single sequence
+
+Given payload `p` bytes per entry:
+
+```
+E   = align8(24 + p)                      # bytes per entry
+epc = floor((chunkSize - 256) / E)        # entries that fit in one chunk
+C   = ceil(N / epc)                       # chunks needed
+footprint = C * chunkSize                 # heap + mmap combined
+```
+
+**Footprint** — for `N = 1,000,000`, `p = 200`, `chunkSize = 262144` (the `SequenceBulkAppendAndCursorScan` scenario, `-Dd4m.seq.entries=1000000`): `E = align8(24 + 200) = 224`, `epc = floor((262144 - 256) / 224) = 1169`, `C = ceil(1,000,000 / 1169) = 856`, so footprint `= 856 * 262144 = 224,395,264 B ~ 214.00M`.
+
+**Overhead per entry** — footprint bytes beyond the raw payload `p`: `align8(24 + p) - p` = a **fixed** `24` (entry header) plus a **variable** `0..7` alignment padding = **24–31 bytes** (a sequence has no per-entry metadata slot). For `p = 200` the payload is already 8-aligned, so the overhead is exactly `24 B`.
+
+**Total fixed overhead** — `~ 24 * N` = `24,000,000 B ~ 22.9M`. On top of this per-entry overhead, the chunk header (256 B/chunk) and the tail chunk's unused remainder add `C * chunkSize - N * E = 395,264 B ~ 0.38M` here — negligible at scale (< 0.5%).
+
+### Storing `N` entries across `M` sequences
+
+Chunks are **never shared between sequences**, so each sequence rounds its own entry count up to whole chunks independently. If entries are spread evenly, each sequence holds `N / M` entries:
+
+```
+Cᵢ        = ceil((N / M) / epc)           # chunks for sequence i
+footprint = M * Cᵢ * chunkSize            # even split
+```
+
+Versus a single sequence of `N` entries, splitting into `M` sequences adds **up to `M - 1` extra partially-filled tail chunks** — the price of isolation. Choosing `M` and `chunkSize` so that `N / M` is a large multiple of `epc` keeps the waste tiny.
+
+**Footprint** — for `N = 1,000,000` across `M = 100` sequences, `p = 200`, `chunkSize = 262144` (the `SequenceMultiSequenceMemoryUsage` scenario, `-Dd4m.seq.entries=1000000 -Dd4m.seq.count=100`, so `epc = 1169`): each sequence holds `10,000` entries → `ceil(10,000 / 1169) = 9` chunks, total `100 * 9 = 900` chunks, footprint `= 900 * 262144 = 235,929,600 B ~ 225.00M`.
+
+**Overhead** — the per-entry overhead is **24–31 bytes** (entry header + alignment). Splitting adds a **variable** footprint-level overhead, not a per-entry one: up to `M - 1` extra tail chunks. Here that is `900 - 856 = 44` chunks ~ `11M` over the single-sequence footprint, within the `M - 1 = 99` chunk upper bound.
+
 ## API
 
 ### Creating a Sequence
@@ -96,8 +137,8 @@ AtomicLong epochCounter = new AtomicLong();
 
 HeapChunkAllocator heap = new HeapChunkAllocator(
     chunkSize,       // bytes per chunk (e.g. 64 * 1024)
-    maxHeapBytes,    // total heap budget
-    slabSize,        // slab allocation granularity
+    chunksPerSlab,   // chunks per contiguous heap slab (e.g. 1)
+    maxHeapBytes,    // total heap budget (shrunk to a whole number of slabs)
     epochCounter
 );
 
@@ -192,7 +233,7 @@ Sequence.Listener listener = new Sequence.Listener() {
 };
 
 HeapChunkAllocator heap = new HeapChunkAllocator(
-        chunkSize, maxHeapBytes, slabSize, epochCounter, heapListener);
+        chunkSize, chunksPerSlab, maxHeapBytes, epochCounter, heapListener);
 MmapChunkAllocator mmap = new MmapChunkAllocator(
         chunkSize, mmapDir, /* preAlloc */ false, epochCounter, mmapListener);
 Sequence sequence = new Sequence(name, chunkSize, heap, mmap, evictQ, listener);
@@ -221,8 +262,8 @@ Listeners are invoked inline (synchronously) from the code path that raises the 
 | Parameter | Description |
 |-----------|-------------|
 | `chunkSize` | Size of each chunk in bytes. Determines max entry size and memory granularity. |
-| `maxHeapBytes` | Total heap budget for the heap allocator. Controls when eviction starts. |
-| `slabSize` | Heap slab allocation size (must be >= `chunkSize`). |
+| `chunksPerSlab` | Number of chunks pre-allocated per contiguous heap slab (>= 1). |
+| `maxHeapBytes` | Total heap budget for the heap allocator. Controls when eviction starts. Shrunk down to a whole number of slabs (at least one). |
 | `mmapDirectory` | Directory for memory-mapped overflow files. |
 
 ## License

@@ -40,8 +40,12 @@ import static io.github.green4j.d4m.example.ExampleSupport.PERFORMANCE_RESULT_TI
  * {@code --add-opens java.base/java.nio=ALL-UNNAMED}
  */
 public class TieredKeyValueStorageUsage {
-    private static final int TOTAL_NUMBER_OF_KEY_VALUES = 10_000_000;
-    private static final int WARMUP_NUMBER_OF_KEY_VALUES = 1_000_000;
+    // Sizes are overridable so the example can run small (e.g. for the
+    // README memory-consumption figures) without changing its defaults.
+    private static final int TOTAL_NUMBER_OF_KEY_VALUES =
+            ExampleSupport.getInt("d4m.kv.count", 10_000_000);
+    private static final int WARMUP_NUMBER_OF_KEY_VALUES =
+            ExampleSupport.getInt("d4m.kv.warmup", TOTAL_NUMBER_OF_KEY_VALUES / 10);
 
     private static final int NUMBER_OF_MEASURED_KEY_VALUES = TOTAL_NUMBER_OF_KEY_VALUES - WARMUP_NUMBER_OF_KEY_VALUES;
 

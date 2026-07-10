@@ -113,49 +113,57 @@ public final class HeapChunkAllocator {
      * Creates a heap chunk allocator, pre-allocating slabs up to the
      * specified maximum heap budget.
      *
-     * @param chunkSize    size of each chunk in bytes
-     * @param maxHeapBytes maximum total heap memory to allocate
-     * @param slabSize     size of each contiguous slab allocation
-     * @param epochCounter shared epoch counter for stamping chunks
-     * @throws IllegalArgumentException if {@code slabSize < chunkSize}
+     * @param chunkSize     size of each chunk in bytes
+     * @param chunksPerSlab number of chunks per contiguous slab allocation
+     * @param maxHeapBytes  maximum total heap memory to allocate; shrunk down
+     *                      to a whole number of slabs (at least one)
+     * @param epochCounter  shared epoch counter for stamping chunks
+     * @throws IllegalArgumentException if {@code chunksPerSlab < 1}
      */
     public HeapChunkAllocator(final int chunkSize,
+                              final int chunksPerSlab,
                               final long maxHeapBytes,
-                              final int slabSize,
                               final AtomicLong epochCounter) {
-        this(chunkSize, maxHeapBytes, slabSize, epochCounter, null);
+        this(chunkSize, chunksPerSlab, maxHeapBytes, epochCounter, null);
     }
 
     /**
      * Creates a heap chunk allocator with an optional lifecycle listener,
      * pre-allocating slabs up to the specified maximum heap budget.
      *
-     * @param chunkSize    size of each chunk in bytes
-     * @param maxHeapBytes maximum total heap memory to allocate
-     * @param slabSize     size of each contiguous slab allocation
-     * @param epochCounter shared epoch counter for stamping chunks
-     * @param listener     optional listener for lifecycle events, or {@code null}
-     * @throws IllegalArgumentException if {@code slabSize < chunkSize}
+     * @param chunkSize     size of each chunk in bytes
+     * @param chunksPerSlab number of chunks per contiguous slab allocation
+     * @param maxHeapBytes  maximum total heap memory to allocate; shrunk down
+     *                      to a whole number of slabs (at least one)
+     * @param epochCounter  shared epoch counter for stamping chunks
+     * @param listener      optional listener for lifecycle events, or {@code null}
+     * @throws IllegalArgumentException if {@code chunksPerSlab < 1}
      */
     public HeapChunkAllocator(final int chunkSize,
+                              final int chunksPerSlab,
                               final long maxHeapBytes,
-                              final int slabSize,
                               final AtomicLong epochCounter,
                               final Listener listener) {
         this.chunkSize = chunkSize;
         this.epochCounter = epochCounter;
         this.listener = listener;
 
-        final int perSlab = slabSize / chunkSize;
-        if (perSlab < 1) {
-            throw new IllegalArgumentException("slabSize < chunkSize");
+        if (chunksPerSlab < 1) {
+            throw new IllegalArgumentException("chunksPerSlab < 1");
         }
 
-        final int realSlab = perSlab * chunkSize;
-        final int numSlabs = (int) ((maxHeapBytes + realSlab - 1) / realSlab);
+        final int realSlab = chunksPerSlab * chunkSize;
+        // Shrink the budget down to a whole number of slabs so the pool never
+        // exceeds maxHeapBytes and leaves no partially-usable tail; always keep
+        // at least one slab so the allocator is never empty.
+        long slabs = maxHeapBytes / realSlab;
+        if (slabs < 1) {
+            slabs = 1;
+        }
+        final int numSlabs = (int) slabs;
         for (int s = 0; s < numSlabs; s++) {
             final ByteBuffer slab = ByteBuffer.allocate(realSlab);
-            for (int i = 0; i < perSlab; i++) {
+            for (int i = 0; i < chunksPerSlab; i++) {
                 final int off = i * chunkSize;
                 slab.position(off).limit(off + chunkSize);
                 final AtomicBuffer buf = new UnsafeBuffer(slab.slice());
@@ -163,7 +171,7 @@ public final class HeapChunkAllocator {
                 slab.clear();
             }
             if (listener != null) {
-                listener.onSlabAllocated(this, s, realSlab, perSlab);
+                listener.onSlabAllocated(this, s, realSlab, chunksPerSlab);
             }
         }
     }

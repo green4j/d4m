@@ -117,7 +117,7 @@ class ConcurrencyStressTest {
     }
 
     private TestSequenceStorage store(final long maxHeap) {
-        return new TestSequenceStorage(CHUNK, maxHeap, (int) maxHeap, dir, false);
+        return new TestSequenceStorage(CHUNK, maxHeap, (int) (maxHeap / CHUNK), dir, false);
     }
 
     /**

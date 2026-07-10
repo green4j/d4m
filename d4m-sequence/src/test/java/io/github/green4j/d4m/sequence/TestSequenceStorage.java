@@ -40,21 +40,21 @@ public final class TestSequenceStorage {
     /**
      * Creates a storage instance with the given allocator configuration.
      *
-     * @param chunkSize the size of each chunk in bytes
-     * @param maxHeap   maximum heap memory for chunk allocation
-     * @param slabSize  the slab size for the heap allocator
-     * @param mmapDir   directory for memory-mapped chunk files
-     * @param preAlloc  whether to pre-allocate mmap chunks
+     * @param chunkSize     the size of each chunk in bytes
+     * @param maxHeap       maximum heap memory for chunk allocation
+     * @param chunksPerSlab the number of chunks per slab for the heap allocator
+     * @param mmapDir       directory for memory-mapped chunk files
+     * @param preAlloc      whether to pre-allocate mmap chunks
      */
     public TestSequenceStorage(final int chunkSize,
                                final long maxHeap,
-                               final int slabSize,
+                               final int chunksPerSlab,
                                final File mmapDir,
                                final boolean preAlloc) {
         this.chunkSize = chunkSize;
 
         final AtomicLong epoch = new AtomicLong();
-        this.heap = new HeapChunkAllocator(chunkSize, maxHeap, slabSize, epoch);
+        this.heap = new HeapChunkAllocator(chunkSize, chunksPerSlab, maxHeap, epoch);
         this.mmap = new MmapChunkAllocator(chunkSize, mmapDir, preAlloc, epoch);
 
         this.evictQ = new EvictionQueue();

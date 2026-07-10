@@ -98,7 +98,7 @@ class SequenceListenerTest {
         final AtomicLong epoch = new AtomicLong();
         // Only 2 heap chunks -> the writer is forced to evict to mmap quickly.
         final HeapChunkAllocator heap =
-                new HeapChunkAllocator(CHUNK_SIZE, 2L * CHUNK_SIZE, CHUNK_SIZE, epoch);
+                new HeapChunkAllocator(CHUNK_SIZE, 1, 2L * CHUNK_SIZE, epoch);
         final MmapChunkAllocator mmap =
                 new MmapChunkAllocator(CHUNK_SIZE, mmapDir, false, epoch);
         final EvictionQueue evictQ = new EvictionQueue();

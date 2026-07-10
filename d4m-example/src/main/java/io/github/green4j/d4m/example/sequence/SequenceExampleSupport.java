@@ -44,7 +44,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * Shared helpers for {@code d4m-example} sequence samples.
  */
 final class SequenceExampleSupport extends ExampleSupport {
-    static final int TOTAL_ENTRIES = 10_000_000;
+    // Overridable so the example can run small (e.g. for the README
+    // memory-consumption figures) without changing its default.
+    static final int TOTAL_ENTRIES = getInt("d4m.seq.entries", 10_000_000);
     static final int PAYLOAD_BYTES = 200;
     static final int ENTRY_BYTES = Chunk.entrySize(PAYLOAD_BYTES);
     static final int CHUNK_SIZE = 262_144;
@@ -61,7 +63,7 @@ final class SequenceExampleSupport extends ExampleSupport {
                                 final File mmapDir) {
         final AtomicLong epoch = new AtomicLong();
         final HeapChunkAllocator heap =
-                new HeapChunkAllocator(CHUNK_SIZE, maxHeapBytes, CHUNK_SIZE, epoch,
+                new HeapChunkAllocator(CHUNK_SIZE, 1, maxHeapBytes, epoch,
                         HEAP_LOGGING_LISTENER);
         final MmapChunkAllocator mmap =
                 new MmapChunkAllocator(CHUNK_SIZE, mmapDir, false, epoch,
@@ -69,6 +71,38 @@ final class SequenceExampleSupport extends ExampleSupport {
         final EvictionQueue evictQ = new EvictionQueue();
         return new Sequence(name, CHUNK_SIZE, heap, mmap, evictQ,
                 SEQUENCE_LOGGING_LISTENER);
+    }
+
+    /**
+     * Creates {@code count} sequences that <em>share</em> one heap allocator,
+     * one mmap allocator and one eviction queue (the recommended layout for
+     * cooperative eviction). Used to demonstrate how many sequences affect the
+     * total chunk footprint via partially-filled tail chunks.
+     *
+     * @param prefix       name prefix for the sequences
+     * @param count        number of sequences to create
+     * @param maxHeapBytes total heap budget shared across all sequences
+     * @param mmapDir       folder for mmap overflow files
+     * @return the created sequences, all backed by the same allocators
+     */
+    static Sequence[] newSharedSequences(final String prefix,
+                                         final int count,
+                                         final long maxHeapBytes,
+                                         final File mmapDir) {
+        final AtomicLong epoch = new AtomicLong();
+        final HeapChunkAllocator heap =
+                new HeapChunkAllocator(CHUNK_SIZE, 1, maxHeapBytes, epoch,
+                        HEAP_LOGGING_LISTENER);
+        final MmapChunkAllocator mmap =
+                new MmapChunkAllocator(CHUNK_SIZE, mmapDir, false, epoch,
+                        MMAP_LOGGING_LISTENER);
+        final EvictionQueue evictQ = new EvictionQueue();
+        final Sequence[] sequences = new Sequence[count];
+        for (int i = 0; i < count; i++) {
+            sequences[i] = new Sequence(prefix + i, CHUNK_SIZE, heap, mmap, evictQ,
+                    SEQUENCE_LOGGING_LISTENER);
+        }
+        return sequences;
     }
 
     /**
@@ -233,6 +267,58 @@ final class SequenceExampleSupport extends ExampleSupport {
         System.out.printf("%-28s: %12.2f%%%n", "Mmap entry share (approx.)", mmapSharePct);
 
         final long approxChunkBytes = (long) snapshot.size() * CHUNK_SIZE;
+        System.out.printf(
+                "%-28s: %13s%n",
+                "Approx. chunk storage",
+                formatBytesToHumanReadable(approxChunkBytes)
+        );
+        final long logicalPayloadBytes = totalEntries * PAYLOAD_BYTES;
+        System.out.printf(
+                "%-28s: %13s%n",
+                "Logical payload total",
+                formatBytesToHumanReadable(logicalPayloadBytes)
+        );
+        System.out.println(BR);
+    }
+
+    /**
+     * Prints aggregate chunk statistics across a set of sequences that share
+     * allocators. Chunks are never shared between sequences, so the total
+     * footprint is the sum of each sequence's whole-chunk allocation.
+     *
+     * @param sequences the sequences to aggregate over
+     */
+    static void printMultiSequenceStatistics(final Sequence[] sequences) {
+        long totalEntries = 0;
+        int totalChunks = 0;
+        int heapChunks = 0;
+        int mmapChunks = 0;
+
+        for (final Sequence sequence : sequences) {
+            final ChunkSnapshot snapshot = sequence.snapshot();
+            totalChunks += snapshot.size();
+            for (int i = 0; i < snapshot.size(); i++) {
+                final Chunk chunk = snapshot.chunk(i);
+                totalEntries += chunk.getEntryCount();
+                if (chunk.buffer().isDirect()) {
+                    mmapChunks++;
+                } else {
+                    heapChunks++;
+                }
+            }
+        }
+
+        System.out.printf(
+                "%s%s%s%n",
+                "-".repeat(9), "[ Multi-Sequence Statistics ]", "-".repeat(9)
+        );
+        System.out.printf("%-28s: %13d%n", "Number of sequences", sequences.length);
+        System.out.printf("%-28s: %13d%n", "Total entries", totalEntries);
+        System.out.printf("%-28s: %13d%n", "Total chunks", totalChunks);
+        System.out.printf("%-28s: %13d%n", "Heap chunks", heapChunks);
+        System.out.printf("%-28s: %13d%n", "Mmap chunks", mmapChunks);
+
+        final long approxChunkBytes = (long) totalChunks * CHUNK_SIZE;
         System.out.printf(
                 "%-28s: %13s%n",
                 "Approx. chunk storage",

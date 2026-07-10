@@ -65,7 +65,7 @@ final class TestHarness {
                 final File mmapDir) {
         this.chunkSize = chunkSize;
         this.epochCounter = new AtomicLong();
-        this.heap = new HeapChunkAllocator(chunkSize, maxHeap, SLAB_SIZE, epochCounter);
+        this.heap = new HeapChunkAllocator(chunkSize, SLAB_SIZE / chunkSize, maxHeap, epochCounter);
         if (mmapDir != null) {
             this.mmap = new MmapChunkAllocator(chunkSize, mmapDir, false, epochCounter);
         } else {

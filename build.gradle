@@ -469,6 +469,29 @@ configure(exampleProject) {
         implementation sequenceProject
         implementation "org.hdrhistogram:HdrHistogram:${hdrhistogramVersion}"
     }
+
+    // Run any example main class, e.g.:
+    //   ./gradlew :d4m-example:runExample \
+    //       -Pmain=io.github.green4j.d4m.example.kv.TieredKeyValueStorageUsage \
+    //       -Dd4m.kv.count=1000000
+    // Any -Dd4m.* system properties on the Gradle invocation are forwarded.
+    tasks.register('runExample', JavaExec) {
+        group = 'application'
+        description = 'Runs a d4m-example main class specified via -Pmain'
+        classpath = sourceSets.main.runtimeClasspath
+        mainClass = providers.gradleProperty('main').orElse('')
+        jvmArgs '--add-opens', 'java.base/jdk.internal.misc=ALL-UNNAMED',
+                '--add-opens', 'java.base/java.nio=ALL-UNNAMED'
+        System.getProperties().stringPropertyNames().findAll { it.startsWith('d4m.') }.each {
+            systemProperty it, System.getProperty(it)
+        }
+        doFirst {
+            if (mainClass.get().isEmpty()) {
+                throw new GradleException(
+                        "Specify the main class with -Pmain=<fully.qualified.ClassName>")
+            }
+        }
+    }
 }
 
 tasks.register('uploadArtifactsToSonatypeCentralPortal', SonatypeCentralPortalUploadRepositoryTask) {

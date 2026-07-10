@@ -46,9 +46,14 @@ import static io.github.green4j.d4m.example.ExampleSupport.PERFORMANCE_RESULT_TI
  * {@code --add-opens java.base/java.nio=ALL-UNNAMED}
  */
 public class KeyListStorageUsage {
-    private static final int TOTAL_NUMBER_OF_LISTS = 1_000_000;
-    private static final int ENTRIES_PER_LIST = 10;
-    private static final int WARMUP_NUMBER_OF_LISTS = 100_000;
+    // Sizes are overridable so the example can run small (e.g. for the
+    // README memory-consumption figures) without changing its defaults.
+    private static final int TOTAL_NUMBER_OF_LISTS =
+            ExampleSupport.getInt("d4m.klist.lists", 1_000_000);
+    private static final int ENTRIES_PER_LIST =
+            ExampleSupport.getInt("d4m.klist.entries", 10);
+    private static final int WARMUP_NUMBER_OF_LISTS =
+            ExampleSupport.getInt("d4m.klist.warmup", TOTAL_NUMBER_OF_LISTS / 10);
 
     private static final int NUMBER_OF_MEASURED_LISTS =
             TOTAL_NUMBER_OF_LISTS - WARMUP_NUMBER_OF_LISTS;

@@ -93,7 +93,7 @@ public final class BenchmarkSupport {
         final AtomicLong epoch = new AtomicLong();
         final EvictionQueue evictQ = new EvictionQueue();
         final HeapChunkAllocator heap = new HeapChunkAllocator(
-                chunkSize, maxHeapBytes, chunkSize, epoch);
+                chunkSize, 1, maxHeapBytes, epoch);
         final MmapChunkAllocator mmap = createMmap(chunkSize, epoch);
         final Sequence[] result = new Sequence[count];
         for (int i = 0; i < count; i++) {

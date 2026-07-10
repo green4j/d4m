@@ -102,6 +102,52 @@ public abstract class ExampleSupport {
     }
 
     /**
+     * Reads a non-negative {@code int} configuration value from the system
+     * property {@code prop}, returning {@code def} if the property is unset,
+     * blank, or not a valid non-negative integer. Lets examples run at a
+     * smaller scale (e.g. for documentation) without changing their default
+     * behaviour.
+     *
+     * @param prop the system property name
+     * @param def  the default value when the property is absent or invalid
+     * @return the parsed value, or {@code def}
+     */
+    public static int getInt(final String prop, final int def) {
+        final String raw = System.getProperty(prop);
+        if (raw == null || raw.trim().isEmpty()) {
+            return def;
+        }
+        try {
+            final int value = Integer.parseInt(raw.trim());
+            return value >= 0 ? value : def;
+        } catch (final NumberFormatException e) {
+            return def;
+        }
+    }
+
+    /**
+     * Reads a non-negative {@code long} configuration value from the system
+     * property {@code prop}, returning {@code def} if the property is unset,
+     * blank, or not a valid non-negative long.
+     *
+     * @param prop the system property name
+     * @param def  the default value when the property is absent or invalid
+     * @return the parsed value, or {@code def}
+     */
+    public static long getLong(final String prop, final long def) {
+        final String raw = System.getProperty(prop);
+        if (raw == null || raw.trim().isEmpty()) {
+            return def;
+        }
+        try {
+            final long value = Long.parseLong(raw.trim());
+            return value >= 0 ? value : def;
+        } catch (final NumberFormatException e) {
+            return def;
+        }
+    }
+
+    /**
      * Prints one row of throughput metrics ({@code label : ops per sec}).
      * Caller is responsible for printing the surrounding title and any
      * additional rows.

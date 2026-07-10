@@ -92,6 +92,68 @@ This means **only the segments that need cold storage allocate it**. A segment w
 
 `MmapTierFactory.Listener` exposes hooks for the three lifecycle events (folder cleanup, in-memory tier creation, mmap tier creation) so applications can observe storage growth without instrumenting internals.
 
+## Memory Consumption
+
+This section lets you predict how much memory a workload needs before you run it. All sizes are exact byte counts; `1M` below means the binary mebibyte, `1M = 1024 * 1024 = 1_048_576` bytes.
+
+Two knobs drive every entry's footprint:
+
+- Every entry is stored 8-byte aligned. Define `align8(x) = (x + 7) & ~7`.
+- Every entry also occupies exactly **one 8-byte metadata slot** in its tier's open-addressing table (the packed `[occupied | hash | index]` long).
+
+### Storing `N` key-values
+
+For a single entry with key length `k` and value length `v` bytes:
+
+- **Payload bytes** (in the `KeyValueBuffer`): `E = align8(16 + k + v)`, where `16` is the two-long entry header (`KeyValueBuffer.HEADER_SIZE`).
+- **Metadata bytes**: `8` (one slot).
+
+So the total **used** memory for `N` entries is:
+
+```
+used ~ Σ (align8(16 + kᵢ + vᵢ))   +   8 * N
+        └─────── payload ───────┘     └ metadata ┘
+```
+
+When keys/values are fixed size this simplifies to `used ~ N * (align8(16 + k + v) + 8)`.
+
+**Footprint** — for `N = 1,000,000` with key `k = 12 + digits` and value `v = 200 + digits` (the `TieredKeyValueStorageUsage` scenario, `-Dd4m.kv.count=1000000`; ~90% of indices are 6 digits, so the dominant bucket is `E = align8(16 + 18 + 206) = 240`): `~ 236.5M`.
+
+**Overhead per entry** — footprint bytes beyond the raw key+value: `align8(16 + k + v) + 8 - (k + v)`. This is a **fixed** `16` (entry header) + `8` (metadata slot) = `24 B`, plus a **variable** `0..7` alignment padding — so **24–31 bytes** total. For the scenario above the payload is already 8-aligned, so the overhead is exactly `24 B`.
+
+**Total fixed overhead** — `~ 24 * N` = `24,000,000 B ~ 22.9M`, about 10% of the `236.5M` footprint.
+
+**Used vs. allocated.** The formulas above are *used* memory (live bytes). *Allocated* memory is always larger and is driven by three rounding rules:
+
+- The metadata table only grows in powers of two and stays under a **0.75 load factor** (`Tier.LOAD_FACTOR`), so allocated slots ~ `N / 0.75` rounded up to a power of two per tier.
+- The tier-0 heap buffer is a fixed budget per segment (`totalMainMemory / ringSize`), pre-allocated whole regardless of fill.
+- Each mmap overflow tier maps a large file (up to ~1 GB) even though only the written prefix is touched — the OS keeps the rest as sparse/untouched pages. Compare *used*, not *allocated*, mmap bytes for real consumption.
+
+### Storing `N` lists of `M` entries (`KeyListStorage`)
+
+`KeyListStorage` layers a multimap over `KeyValueStorage` using two kinds of underlying key-values (see `USER_KEY_PREFIX = 1`, `SYNTHETIC_KEY_SIZE = 8`, `METADATA_VALUE_SIZE = 8`):
+
+- **One metadata key-value per list**: key = `1 + k` (a 1-byte prefix + the user key), value = `8` → `Emeta = align8(16 + (1 + k) + 8) = align8(25 + k)`.
+- **One entry key-value per value**: key = `8` (synthetic), value = user value `v` → `Eentry = align8(16 + 8 + v) = align8(24 + v)`.
+
+Each of these is still a full key-value, so each also costs one 8-byte metadata slot:
+
+```
+used ~ N * (Emeta + 8)   +   N * M * (Eentry + 8)
+       └─ per-list meta ┘     └──── per value ────┘
+
+underlying key-values = N * (1 + M)
+```
+
+**Footprint** — for `N = 100,000` lists of `M = 10` entries with user key `k = 5 + digits` and value `v ~ 203 + digits` (the `KeyListStorageUsage` scenario, `-Dd4m.klist.lists=100000 -Dd4m.klist.entries=10`; `Eentry = 232` for every entry): `~ 233.46M` across `N * (1 + M) = 1,100,000` underlying key-values.
+
+**Overhead** — two kinds:
+
+- Per value entry (footprint beyond the raw value `v`): `align8(24 + v) + 8 - v` = a **fixed** `16` (entry header) + `8` (synthetic key) + `8` (metadata slot) = `32 B`, plus a **variable** `0..7` alignment padding = **32–39 bytes**.
+- Per list (a **fixed** overhead regardless of `M`, and it also stores the user key once): the metadata key-value = `align8(25 + k) + 8 B`.
+
+**Total overhead** — `N * (align8(25 + k) + 8) + N * M * (align8(24 + v) + 8 - v)`. For the scenario: `~ 4.58M` list-metadata overhead + `~ 34.3M` per-value overhead = `~ 38.9M`, about 17% of the `233.46M` footprint.
+
 ## API
 
 ### Creating a Store
