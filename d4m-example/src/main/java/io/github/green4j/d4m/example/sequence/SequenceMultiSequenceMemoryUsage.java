@@ -27,8 +27,6 @@ import io.github.green4j.d4m.common.AtomicBuffer;
 import io.github.green4j.d4m.example.ExampleSupport;
 import io.github.green4j.d4m.sequence.Sequence;
 
-import java.io.IOException;
-
 import static io.github.green4j.d4m.example.sequence.SequenceExampleSupport.ENTRY_BYTES;
 import static io.github.green4j.d4m.example.sequence.SequenceExampleSupport.PAYLOAD_BYTES;
 import static io.github.green4j.d4m.example.sequence.SequenceExampleSupport.TOTAL_ENTRIES;
@@ -50,20 +48,18 @@ import static io.github.green4j.d4m.example.sequence.SequenceExampleSupport.prin
  * {@code --add-opens java.base/java.nio=ALL-UNNAMED}
  */
 public final class SequenceMultiSequenceMemoryUsage {
+    private static final int SEQUENCE_COUNT = ExampleSupport.getInt("d4m.seq.count", 100);
+    private static final long MAX_HEAP_BYTES = (long) TOTAL_ENTRIES * ENTRY_BYTES * 2L; // heap budget large enough to
+    // keep this small demo mostly on heap
 
     private SequenceMultiSequenceMemoryUsage() {
     }
 
-    public static void main(final String[] args) throws IOException {
-        final int sequenceCount = ExampleSupport.getInt("d4m.seq.count", 100);
-
-        // Heap budget large enough to keep this small demo mostly on heap.
-        final long maxHeapBytes = (long) TOTAL_ENTRIES * ENTRY_BYTES * 2L;
-
+    public static void main(final String[] args) throws Exception {
         final Sequence[] sequences = newSharedSequences(
                 "multi-seq-",
-                sequenceCount,
-                maxHeapBytes,
+                SEQUENCE_COUNT,
+                MAX_HEAP_BYTES,
                 createMmapDir("d4m-seq-multi-")
         );
 
@@ -71,7 +67,7 @@ public final class SequenceMultiSequenceMemoryUsage {
 
         System.out.printf(
                 "Distributed %,d entries across %,d sequences%n",
-                TOTAL_ENTRIES, sequenceCount);
+                TOTAL_ENTRIES, SEQUENCE_COUNT);
         printMultiSequenceStatistics(sequences);
     }
 
