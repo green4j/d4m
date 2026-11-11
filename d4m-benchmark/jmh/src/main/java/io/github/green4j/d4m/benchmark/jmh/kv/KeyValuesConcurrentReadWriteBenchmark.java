@@ -49,9 +49,9 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Both eviction profiles share the same {@link
  * BenchmarkSupport#HOT_TIER} hot tier. {@code @Setup(Level.Trial)}
- * pre-populates the profile-specific entry count
- * ({@link BenchmarkSupport#KV_KEYS_NO_EVICTION} or {@link
- * BenchmarkSupport#KV_KEYS_EVICT_30}); both the writer and the
+ * pre-populates the profile-specific entry count for the ring's
+ * {@code segments} ({@link BenchmarkSupport#kvKeysNoEviction(int)} or
+ * {@link BenchmarkSupport#kvKeysEvict30(int)}); both the writer and the
  * readers then cycle their op sequence over that range, so each
  * writer put is an in-place update and each reader get hits a
  * pre-populated key. For {@code noEviction} every access is in
@@ -66,7 +66,7 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Run with:
  * <pre>
- *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="KeyValuesConcurrentReadWriteBenchmark"
+ *   ./gradlew :d4m-benchmark:jmh:jmh -PjmhArgs="KeyValuesConcurrentReadWriteBenchmark"
  * </pre>
  */
 @BenchmarkMode(Mode.Throughput)
@@ -95,8 +95,8 @@ public class KeyValuesConcurrentReadWriteBenchmark {
     public void setup() {
         value = BenchmarkSupport.createValueBuffer();
         range = "noEviction".equals(eviction)
-                ? BenchmarkSupport.KV_KEYS_NO_EVICTION
-                : BenchmarkSupport.KV_KEYS_EVICT_30;
+                ? BenchmarkSupport.kvKeysNoEviction(segments)
+                : BenchmarkSupport.kvKeysEvict30(segments);
         ring = BenchmarkSupport.createRing(segments);
         final UnsafeBuffer populateKey = BenchmarkSupport.createKeyBuffer();
         KeyValuesBenchmarkSupport.populate(ring, populateKey, value, range);

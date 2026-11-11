@@ -62,7 +62,7 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Run with:
  * <pre>
- *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="KeyValuesReadBenchmark"
+ *   ./gradlew :d4m-benchmark:jmh:jmh -PjmhArgs="KeyValuesReadBenchmark"
  * </pre>
  */
 @BenchmarkMode(Mode.SingleShotTime)

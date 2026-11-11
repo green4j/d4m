@@ -53,8 +53,8 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Thread count is controlled by the JMH {@code -t} flag:
  * <pre>
- *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="SequenceHistoricalReadBenchmark -t 1"
- *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="SequenceHistoricalReadBenchmark -t 2"
+ *   ./gradlew :d4m-benchmark:jmh:jmh -PjmhArgs="SequenceHistoricalReadBenchmark -t 1"
+ *   ./gradlew :d4m-benchmark:jmh:jmh -PjmhArgs="SequenceHistoricalReadBenchmark -t 2"
  * </pre>
  */
 @BenchmarkMode(Mode.Throughput)

@@ -78,23 +78,25 @@ explanations, the cache-vs-mmap analysis, and how to reproduce -- see
 
 Both profiles share the same **32 MB hot tier per segment**. The
 "30" in `evict30` is the **spill percentage** -- evict30 writes
-`1 / 0.70 ~ 1.43 x` more entries per JMH iteration than noEviction
-so that 30 % of the working set overflows to mmap. noEviction's
-working set fits 1 : 1 in the hot tier (0 % mmap). Single-thread
-benchmarks run in `Mode.SingleShotTime` so the op count per
-iteration is fixed; concurrent benchmarks pre-populate the same
-ranges and cycle in-place updates.
+`1 / 0.70 ~ 1.43 x` as many entries per JMH iteration as fill the
+hot tier, so that 30 % of the working set overflows to mmap.
+noEviction's working set fills 95 % of the hot tier (0 % mmap),
+leaving room for the uneven split of keys across segments. The counts
+scale with the number of segments. Single-thread benchmarks run in
+`Mode.SingleShotTime` so the op count per iteration is fixed;
+concurrent benchmarks pre-populate the same ranges and cycle in-place
+updates.
 
 `noEviction` table (ops/sec, short JMH config):
 
 | Operation                                     | `KeyValues` | `KeyLists` |
 |-----------------------------------------------|------------:|-----------:|
-| write (single-thread `put` / `append`)        |       5.14M |      3.52M |
-| read (single-thread `get` / `list`+`forEach`) |       7.61M |     609K ¹ |
-| concurrent `rw1` (1 W + 1 R, 16 segments)     |       9.20M |       528K |
-| concurrent `rw10` (1 W + 10 R, 16 segments)   |      15.42M |       271K |
+| write (single-thread `put` / `append`)        |       7.46M |      2.93M |
+| read (single-thread `get` / `list`+`forEach`) |       6.61M |     665K ¹ |
+| concurrent `rw1` (1 W + 1 R, 16 segments)     |       6.88M |       553K |
+| concurrent `rw10` (1 W + 10 R, 16 segments)   |      18.07M |      3.07M |
 
-¹ Each `KeyListsReadBenchmark.list` op delivers 10 entries -- entry-level throughput is \~6.09 M entries/sec.
+¹ Each `KeyListsReadBenchmark.list` op delivers 10 entries -- entry-level throughput is \~6.65 M entries/sec.
 
 The write rows above use `mode = insert` (fresh-key inserts into an
 empty store); `mode = update` (cyclic in-place updates of a

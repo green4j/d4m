@@ -54,7 +54,7 @@ import java.util.concurrent.TimeUnit;
  *   <li>{@code noEviction} writes {@link BenchmarkSupport#KV_KEYS_NO_EVICTION}
  *       entries -- all fit in the hot tier, 0 % mmap.</li>
  *   <li>{@code evict30} writes {@link BenchmarkSupport#KV_KEYS_EVICT_30}
- *       entries -- 30 % more than fit, 30 % spill to mmap.</li>
+ *       entries -- 1 / 0.70 times what fits, 30 % spill to mmap.</li>
  * </ul>
  *
  * <p>Two write modes:
@@ -71,7 +71,7 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Run with:
  * <pre>
- *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="KeyValuesWriteBenchmark"
+ *   ./gradlew :d4m-benchmark:jmh:jmh -PjmhArgs="KeyValuesWriteBenchmark"
  * </pre>
  */
 @BenchmarkMode(Mode.SingleShotTime)

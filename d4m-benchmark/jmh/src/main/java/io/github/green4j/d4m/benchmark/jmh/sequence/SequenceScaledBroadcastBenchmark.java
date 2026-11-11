@@ -57,11 +57,11 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Each reader round-robins across its cursors, calling
  * {@code next(READ_BATCH, ...)} on one cursor per invocation.
- * The auxiliary counter {@code entries} reports total entries consumed.
+ * The auxiliary counter {@code entries} reports the entries consumed per second.
  *
  * <p>Run with:
  * <pre>
- *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="SequenceScaledBroadcastBenchmark"
+ *   ./gradlew :d4m-benchmark:jmh:jmh -PjmhArgs="SequenceScaledBroadcastBenchmark"
  * </pre>
  */
 @BenchmarkMode(Mode.Throughput)
@@ -214,10 +214,18 @@ public class SequenceScaledBroadcastBenchmark {
     /**
      * Auxiliary JMH counters for tracking entries consumed by readers.
      */
-    @AuxCounters(AuxCounters.Type.EVENTS)
+    @AuxCounters(AuxCounters.Type.OPERATIONS)
     @State(Scope.Thread)
     public static class ReaderCounters {
         public long entries;
+
+        /**
+         * Resets the counter before each iteration.
+         */
+        @Setup(Level.Iteration)
+        public void reset() {
+            entries = 0;
+        }
     }
 
     /**

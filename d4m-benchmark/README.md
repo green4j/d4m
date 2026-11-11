@@ -64,14 +64,16 @@ mmap.** The number `30` in the name is the spill percentage.
 difference between profiles is **how many entries are written**
 within a single bounded JMH iteration:
 
-- **`noEviction`** -- writes a count that fits in the hot tier.
-  - KV: `KV_KEYS_NO_EVICTION ~ 1 118 481` entries (8 x 32 MB / 240 B).
-  - KeyLists: `KL_LISTS_NO_EVICTION ~ 116 863` lists (each \~2.3 KB).
-  - Working set fits 1 : 1 in the hot tier -> **0 % mmap**.
-- **`evict30`** -- writes `1 / 0.70 = 1.43 x` more entries.
-  - KV: `KV_KEYS_EVICT_30 ~ 1 597 830` entries.
-  - KeyLists: `KL_LISTS_EVICT_30 ~ 166 947` lists.
+- **`noEviction`** -- writes a count that fills 95 % of the hot tiers.
+  - KV: `KV_KEYS_NO_EVICTION ~ 1 028 280` entries (0.95 x 8 x 32 MB / 248 B).
+  - KeyLists: lists sized by the entries they hold, e.g. `KL_LISTS_NO_EVICTION ~ 110 682` lists of 10 entries (each 2 304 B) for the read benchmark.
+  - The working set fits in the hot tiers with 5 % to spare -> **0 % mmap**. The hash spreads keys over the segments unevenly by a fraction of a percent, so filling the tiers completely would overflow about half of them, and a cyclic update over an overflowing segment misses on every access.
+- **`evict30`** -- writes as many entries as fill the hot tiers `1 / 0.70 = 1.43 x`.
+  - KV: `KV_KEYS_EVICT_30 ~ 1 546 287` entries.
+  - KeyLists: e.g. `KL_LISTS_EVICT_30 ~ 166 440` lists of 10 entries.
   - 30 % overflows the hot tier -> **30 % mmap**.
+
+The counts scale with the ring's segments: the concurrent benchmarks at 16 segments write twice the counts of the 8-segment single-thread ones.
 
 This is only enforceable when each benchmark invocation does a
 **fixed** number of operations, which is why the single-thread
@@ -132,30 +134,37 @@ concurrent benchmarks measure **ops/sec** (Throughput, group mode).
 - `HOT_TIER = 32 MB` per segment (single power-of-two value, shared by both profiles)
 - `EVICT30_HEAP_FRACTION = 0.70` -- fraction of evict30's working set held by `HOT_TIER`
 - `RING_SIZE = 8` segments
-- `KV_KEYS_NO_EVICTION ~ 1 118 481` (computed: `8 x 32 MB / 240 B`) -- KV op count for `noEviction`; the resulting working set just fits in the hot tier
-- `KV_KEYS_EVICT_30 ~ 1 597 830` (computed: `KV_KEYS_NO_EVICTION / 0.70`) -- KV op count for `evict30`, 30 % overflow
-- `KL_LISTS_NO_EVICTION ~ 116 863` (computed: `8 x 32 MB / 2 297 B`) -- KeyLists list count for `noEviction`
-- `KL_LISTS_EVICT_30 ~ 166 947` (computed: `KL_LISTS_NO_EVICTION / 0.70`) -- KeyLists list count for `evict30`
+- `NO_EVICTION_FILL = 0.95` -- fraction of the hot tiers `noEviction` fills
+- `kvKeysNoEviction(segments)` = `0.95 x segments x 32 MB / 248 B` and `kvKeysEvict30(segments)` = `segments x 32 MB / 248 B / 0.70` -- KV op counts:
+  - 8 segments (single-thread): `KV_KEYS_NO_EVICTION ~ 1 028 280`, `KV_KEYS_EVICT_30 ~ 1 546 287`
+  - 16 segments (`KeyValuesConcurrentReadWriteBenchmark`): `2 056 561` / `3 092 574`
+- `klListsNoEviction(segments, e)` and `klListsEvict30(segments, e)` -- the same for lists of `e` entries, `listFootprint(e) = 64 + e x 224 B`:
+  - `KeyListsReadBenchmark`, 10 entries per list: `KL_LISTS_NO_EVICTION ~ 110 682`, `KL_LISTS_EVICT_30 ~ 166 440`
+  - `KeyListsWriteBenchmark`, `mode=insert` (one entry per list after an invocation): `885 463` / `1 331 524`
+  - `KeyListsWriteBenchmark`, `mode=update` (two entries per list after an invocation): `498 073` / `748 982`
+  - `KeyListsConcurrentReadWriteBenchmark` at 16 segments, one entry per list at the start: `1 770 928` / `2 663 050`; the writer's appends grow the lists, so the spill grows during a run
 - `ENTRIES_PER_LIST = 10` entries appended per list during `KeyListsReadBenchmark` pre-population
-- `LIST_FOOTPRINT_ESTIMATE = 2 297 B` per list (one \~57 B metadata entry + 10 x \~224 B data entries)
+- `LIST_FOOTPRINT_ESTIMATE = listFootprint(10) = 2 304 B` per list of the read benchmark (one 64 B metadata entry + 10 x 224 B data entries)
 
 Per stored KV (in the segment's binary buffer):
 
-- KeyValues entry \~ 32-byte key + 200-byte payload + 16-byte header = **240 B** (`ENTRY_SIZE_ESTIMATE`)
-- KeyLists metadata entry \~ 33-byte key + 8-byte value + 16-byte header = **57 B**
-- KeyLists data entry \~ 8-byte synthetic key + 200-byte payload + 16-byte header = **224 B**
+- KeyValues entry = 16-byte header + 32-byte key + 200-byte payload = **248 B** (`ENTRY_SIZE_ESTIMATE`)
+- KeyLists metadata entry = 16-byte header + 33-byte key padded to 40 + 8-byte value = **64 B** (`LIST_METADATA_ENTRY_SIZE`)
+- KeyLists data entry = 16-byte header + 8-byte synthetic key + 200-byte payload = **224 B** (`LIST_DATA_ENTRY_SIZE`)
 
 `KeyValuesReadBenchmark` populated footprint per profile:
-- `noEviction`: 1 118 481 x 240 B \~ **268 MB across the ring** \~ **32 MB / segment** -- exactly fills the hot tier, no spill.
-- `evict30`: 1 597 830 x 240 B \~ **383 MB across the ring** \~ **48 MB / segment** -- 30 % overflows to mmap.
+- `noEviction`: 1 028 280 x 248 B \~ **255 MB across the ring** \~ **32 MB / segment** -- fills 95 % of the hot tier, no spill.
+- `evict30`: 1 546 287 x 248 B \~ **383 MB across the ring** \~ **48 MB / segment** -- 30 % overflows to mmap.
 
 `KeyListsReadBenchmark` populated footprint per profile:
-- `noEviction`: 116 863 x 2 297 B \~ **268 MB across the ring** \~ **32 MB / segment** -- fills the hot tier.
-- `evict30`: 166 947 x 2 297 B \~ **383 MB across the ring** \~ **48 MB / segment** -- 30 % spills to mmap.
+- `noEviction`: 110 682 x 2 304 B \~ **255 MB across the ring** \~ **32 MB / segment** -- fills 95 % of the hot tier.
+- `evict30`: 166 440 x 2 304 B \~ **383 MB across the ring** \~ **48 MB / segment** -- 30 % spills to mmap.
 
-`KeyValuesWriteBenchmark` and `KeyListsWriteBenchmark` write the
-same per-profile counts each invocation, so steady-state footprints
-match the read footprints above.
+`KeyValuesWriteBenchmark` writes the same per-profile counts each
+invocation, so its steady-state footprint matches the read footprint
+above. `KeyListsWriteBenchmark` sizes its counts for its own lists
+(one or two entries), so it ends with the same \~255 MB / \~383 MB
+footprints.
 
 ### Cache budget on the test machine
 
@@ -165,7 +174,7 @@ cache = 24 MB shared.
 |                           | `noEviction`                                     | `evict30`                                         |
 |---------------------------|--------------------------------------------------|---------------------------------------------------|
 | Hot tier per segment      | 32MB                                             | 32MB (same)                                       |
-| Op count per invocation   | fits in hot tier                                 | 1 / 0.70 ~ 1.43 x noEviction                     |
+| Op count per invocation   | 95 % of the hot tier                             | 1 / 0.70 ~ 1.43 x the hot tier ~ 1.50 x noEviction |
 | Working set per segment   | \~32MB                                           | \~48MB                                            |
 | Hot vs mmap               | all in hot tier (0 % spill)                      | 70% hot-resident, 30% spilled to mmap             |
 | Working set vs CPU caches | 32MB exceeds the 24MB SLC -- cache-cold hot path | 32MB exceeds the 24 MB SLC -- cache-cold hot path |
@@ -178,18 +187,18 @@ Single-thread rows report **ops/sec** = `range / (ms-per-invocation /
 
 | Operation                                             | Mode     | `noEviction` | `evict30` |
 |-------------------------------------------------------|----------|-------------:|----------:|
-| `KeyValuesWriteBenchmark.put`                         | `insert` |        5.14M |     3.13M |
-| `KeyValuesWriteBenchmark.put`                         | `update` |        1.57M |     1.77M |
-| `KeyValuesReadBenchmark.get`                          | --       |        7.61M |     7.05M |
-| `KeyListsWriteBenchmark.append`                       | `insert` |        3.52M |     2.94M |
-| `KeyListsWriteBenchmark.append`                       | `update` |        2.67M |     2.21M |
-| `KeyListsReadBenchmark.list`                          | --       |         609K |    493K ¹ |
-| `KeyValuesConcurrentReadWriteBenchmark.rw1` (16 seg)  | --       |        9.20M |     9.48M |
-| `KeyValuesConcurrentReadWriteBenchmark.rw10` (16 seg) | --       |       15.42M |    14.92M |
-| `KeyListsConcurrentReadWriteBenchmark.rw1` (16 seg)   | --       |         528K |      480K |
-| `KeyListsConcurrentReadWriteBenchmark.rw10` (16 seg)  | --       |         271K |      340K |
+| `KeyValuesWriteBenchmark.put`                         | `insert` |        7.46M |     3.58M |
+| `KeyValuesWriteBenchmark.put`                         | `update` |        7.00M |     1.69M |
+| `KeyValuesReadBenchmark.get`                          | --       |        6.61M |     6.30M |
+| `KeyListsWriteBenchmark.append`                       | `insert` |        2.93M |     1.52M |
+| `KeyListsWriteBenchmark.append`                       | `update` |        2.70M |     1.14M |
+| `KeyListsReadBenchmark.list`                          | --       |      665K ¹ |    615K ¹ |
+| `KeyValuesConcurrentReadWriteBenchmark.rw1` (16 seg)  | --       |        6.88M |     3.12M |
+| `KeyValuesConcurrentReadWriteBenchmark.rw10` (16 seg) | --       |       18.07M |    13.98M |
+| `KeyListsConcurrentReadWriteBenchmark.rw1` (16 seg)   | --       |         553K |      509K |
+| `KeyListsConcurrentReadWriteBenchmark.rw10` (16 seg)  | --       |        3.07M |     3.36M |
 
-¹ Each `KeyListsReadBenchmark.list` op delivers 10 entries -- entry-level throughput is \~6.09 M / \~4.93 M entries/sec.
+¹ Each `KeyListsReadBenchmark.list` op delivers 10 entries -- entry-level throughput is \~6.65 M / \~6.15 M entries/sec.
 
 ### Cost analysis
 
@@ -199,43 +208,47 @@ attributable to (a) the **larger op count** evict30 carries per
 invocation, and (b) the **mmap-cascade cost** the 30 % overflow
 forces on top of the hot-tier path.
 
-| Benchmark                       | Mode     | `noEviction` | `evict30` |      Delta |
-|---------------------------------|----------|-------------:|----------:|-----------:|
-| `KeyValuesWriteBenchmark.put`   | `insert` |        5.14M |     3.13M |   **-39%** |
-| `KeyValuesWriteBenchmark.put`   | `update` |        1.57M |     1.77M | **+13%** ¹ |
-| `KeyValuesReadBenchmark.get`    | --       |        7.61M |     7.05M |    **-7%** |
-| `KeyListsWriteBenchmark.append` | `insert` |        3.52M |     2.94M |   **-16%** |
-| `KeyListsWriteBenchmark.append` | `update` |        2.67M |     2.21M |   **-17%** |
-| `KeyListsReadBenchmark.list`    | --       |         609K |      493K |   **-19%** |
-| `KeyValues rw1` (16 seg)        | --       |        9.20M |     9.48M |  **+3%** ¹ |
-| `KeyValues rw10` (16 seg)       | --       |       15.42M |    14.92M |    **-3%** |
-| `KeyLists rw1` (16 seg)         | --       |         528K |      480K |    **-9%** |
-| `KeyLists rw10` (16 seg)        | --       |         271K |      340K | **+25%** ¹ |
+| Benchmark                       | Mode     | `noEviction` | `evict30` |       Delta |
+|---------------------------------|----------|-------------:|----------:|------------:|
+| `KeyValuesWriteBenchmark.put`   | `insert` |        7.46M |     3.58M |    **-52%** |
+| `KeyValuesWriteBenchmark.put`   | `update` |        7.00M |     1.69M |    **-76%** |
+| `KeyValuesReadBenchmark.get`    | --       |        6.61M |     6.30M |     **-5%** |
+| `KeyListsWriteBenchmark.append` | `insert` |        2.93M |     1.52M |    **-48%** |
+| `KeyListsWriteBenchmark.append` | `update` |        2.70M |     1.14M |    **-58%** |
+| `KeyListsReadBenchmark.list`    | --       |         665K |      615K |     **-8%** |
+| `KeyValues rw1` (16 seg)        | --       |        6.88M |     3.12M |    **-55%** |
+| `KeyValues rw10` (16 seg)       | --       |       18.07M |    13.98M |    **-23%** |
+| `KeyLists rw1` (16 seg)         | --       |         553K |      509K |   **-8%** ¹ |
+| `KeyLists rw10` (16 seg)        | --       |        3.07M |     3.36M |   **+9%** ¹ |
 
-¹ Rows with positive deltas sit inside the residual noise band of the
-3 x 5 s + 3 x 10 s indicative config. The `KeyValuesWrite.update`
-row (**+13 %**) is dominated by JMH iteration-to-iteration variance
-of \~0.7-0.9 s/op measurements at 3 samples per profile; the
-`KeyValues rw1` row (**+3 %**) is within one standard deviation of the
-per-iteration score. The `KeyLists rw10` row (**+25 %**) is the
-noisiest: the KeyLists concurrent group score drops sharply between
-warmup and measurement (2.4M -> 0.34M ops/s) as the writer starts
-cascading metadata updates through the two-segment `compute` path;
-three measurement samples do not fully stabilise it.
+¹ These rows sit inside the residual noise band of the 3 x 5 s +
+3 x 10 s indicative config: the `KeyLists` concurrent scores fall over
+the iterations (e.g. 0.72M -> 0.40M ops/s for `rw1` `noEviction`,
+3.58M -> 2.58M for `rw10`), since the writer's appends grow the lists
+and the readers deliver more entries per list load; three measurement
+samples do not stabilise them.
 
-The `KeyValuesWriteBenchmark.put insert` row (**-39 %**) is the
-clearest signal: same hot tier, evict30 puts 30 % more entries, the
-last 30 % of those cascade to mmap, and the resulting throughput
-lands well below noEviction. The `KeyListsReadBenchmark.list` row
-(**-19 %**) is the read-side analogue: 30 % of list-load probes
-touch mmap-resident metadata or entries.
+The write rows are the clearest signal: same hot tier, evict30 writes
+\~1.5 x as many entries (43 % more than fit), the last 30 % of those cascade to mmap, and the
+throughput lands at roughly half of noEviction or below
+(**-48 %** to **-76 %**). The `update` rows lose the most: a cyclic
+update walks the keys in insertion order, the order in which the hot
+tier evicts them, so in evict30 every update meets a key that has just
+been evicted to mmap and cascades. The concurrent `KeyValues` rows show
+the same: the writer's updates cascade (**-55 %** with one reader,
+**-23 %** with ten, where readers dominate the score).
+
+Reads lose little (**-5 %** for `get`, **-8 %** for `list`): an entry
+read from the mmap tier costs about as much as one read from the hot
+tier, since the mmap pages stay in the page cache, and a read does not
+move entries between tiers.
 
 #### What the writer/reader actually touches per op
 
 `KeyValueRing.put(key, value)` (single-thread baseline -- the cheap side
 of the gap):
 
-1. **Hash** the 32-byte user key (1 polynomial hash, \~80ns).
+1. **Hash** the 32-byte user key (\~10 ns).
 2. **Acquire** the segment's `StampedLock.writeLock()` -- one acquire +
    one release per call.
 3. **`Tier.put`**: one `findSlot` walk (probes the per-segment
@@ -285,38 +298,63 @@ call** (vs. one for `put`).
 
 #### Why `put` is faster than `append`
 
-Both benchmarks run on a cache-cold pre-population, so per-line miss
-cost is the same on both sides; the ratio is entirely the work
-multiplier in `append`'s critical path. The extra cost decomposes into:
+Time per op, `noEviction`, from a 20-shot run of the write benchmarks:
 
-- **Lock state changes.** `put` does 1 write-lock pair (acquire +
-  release \~60ns uncontended). `append` does 1 read-lock pair plus
-  *two* write-lock pairs (different segments) \~180ns. Net extra for
-  `append`: **\~120ns**.
-- **`findSlot` walks.** `put` does 1; `append` does 4. Each walk is a
-  metadata-array probe + a `kvBuffer.keyEquals` widened memcmp at a
-  hash-distributed offset. The metadata probe itself is cheap (8-byte
-  long reads). The `keyEquals` reads two cache lines' worth of stored
-  key bytes from `kvBuffer` at a slot-specific offset inside the
-  per-segment kvBuffer region; with the working set at \~63MB /
-  segment (KV) and \~39MB / segment (KeyLists), every walk drags those
-  cache lines from DRAM. **Three extra walks \~ 600-900ns**, mostly
-  DRAM-fetch cost.
-- **Hash compute.** `put` does 1 polynomial hash; `append` does 3
-  (prefixed user key twice _(a room for micro-optimization)_ + synthetic key once). Net extra
-  **\~160ns**.
-- **Segment fan-out.** `append` touches *two* segments' arrays /
-  buffers per call (metadata segment + entry segment) where `put`
-  touches one, so the cache-line footprint per call is roughly
-  doubled. **\~400-700ns** of extra DRAM traffic.
-- **Misc.** Synthetic-key 8-byte encode, the
-  `ComputeContext`/`TwoKeyComputeAction` interface dispatch, the
-  retry-on-userKeyIndex-race outer loop, second `kvBuffer.putKeyValue`
-  for the entry put, the metadata in-place write. **\~150-250ns**.
+| Op       | `insert` | `update` |
+|----------|---------:|---------:|
+| `put`    |   140 ns |   143 ns |
+| `append` |   386 ns |   387 ns |
 
-The whole gap is API design (extra hashes, extra lock pairs, extra
-`findSlot` walks, two-segment fan-out) -- with both sides cache-cold,
-cache residency contributes nothing to the *ratio*.
+The extra work counted above is cheap in itself: measured in isolation
+(JMH, average time), a 32/33-byte key hash costs \~10 ns, an 8-byte
+one \~3 ns, and an uncontended `StampedLock` acquire + release pair
+\~13 ns. `append`'s two extra hashes and up to two extra lock pairs
+(the second write-lock is skipped when both keys land on one segment,
+1 in 8 with 8 segments) add **\~45 ns**. The rest of the \~245 ns gap
+is memory traffic: `append` is a lookup plus an insert, where `put` is
+either one of them.
+
+A JFR profile of the same runs (`-prof jfr`, 10 ms sampling, 225-555
+samples per benchmark, shares of the time inside the benchmark method;
+a stall on a cache miss may be attributed to the instruction after
+the load):
+
+| Where the time goes                                 | `put` insert | `put` update | `append` insert | `append` update |
+|-----------------------------------------------------|-------------:|-------------:|----------------:|----------------:|
+| pre-lock metadata GET (`KeyValueRing.get`)          |           -- |           -- |             34% |             28% |
+| `compute` (verify-GET, entry put, metadata put)     |           -- |           -- |             62% |             58% |
+| `Tier.findSlot` (probe walk, key compare on a match) |           6% |          68% |             19% |             35% |
+| `Tier.expand` (metadata table growth, rehash)       |          16% |          <1% |             15% |             <1% |
+| `KeyValueSupport.hash`                              |          10% |          23% |              7% |             13% |
+| `StampedLock`                                       |           2% |           1% |           20% ¹ |              3% |
+| `UnsafeBuffer.putBytes` (key/value copy)            |           3% |          <1% |              6% |              7% |
+
+¹ Almost all of it in `unlockRead` right after the pre-lock GET, most
+likely the stall of that GET's cache misses rather than the lock.
+
+What each op touches, all of it cache-cold at a 32 MB tier:
+
+- **`put` update** -- a lookup: one random line of the metadata table
+  and the stored key in `kvBuffer` to confirm the match, both misses
+  (the `findSlot` share), then an in-place value write.
+- **`put` insert** -- a probe that ends at an empty slot (one random
+  metadata line), a sequential append to `kvBuffer`, and the table
+  growing and rehashing as it fills (`Tier.expand`).
+- **`append`** -- the pre-lock GET is a lookup on the list's segment
+  (about 30 % of the time). Inside `compute`, the verify-GET and the
+  metadata put find the lines that GET has just loaded; the entry put
+  is an insert on the entry's segment. So an `append` costs about a
+  lookup plus an insert, \~140 + \~140 ns, plus the \~45 ns of hashes
+  and locks and the copies.
+
+`keyEquals` runs only when a probed slot holds the same 31-bit hash.
+`KeyValueSupport.hash` mixes 8-byte words with a large odd multiplier
+and finishes with the MurmurHash3 finalizer, so even keys that differ
+in a few bytes -- counters, sequential ids, the benchmarks'
+`putLong(seq)` keys and the `KeyLists` synthetic keys -- collide only
+by chance, about `n^2 / 2^32` times for `n` keys. (A byte-wise `x31`
+polynomial put 7.8-45 such keys on one hash and spent 24-56 % of these
+benchmarks in failed key compares.)
 
 ### Performance tips
 
@@ -331,15 +369,17 @@ workloads:
   (8 -> 16) so per-segment `StampedLock`s spread across more shards --
   this is what lets the `rw10` read throughput scale in
   [Results](#results).
-- **Keep the working set in the hot tier.** Fresh-key `insert`
-  that overflows cascades to mmap (the **-39 %** `put insert` row in
-  [Cost analysis](#cost-analysis)). Prefer cyclic in-place `update`
-  over churny inserts when the key set is stable.
+- **Keep the working set in the hot tier.** Whatever overflows
+  cascades to mmap: the `put` rows lose **52 %** (`insert`) and
+  **76 %** (`update`) in [Cost analysis](#cost-analysis) once 30 % of
+  the working set has spilled. Size the hot tier for the working set
+  rather than for the average.
 - **Reuse buffers; the hot path is zero-alloc.** Write keys/values into
   reusable `AtomicBuffer`s (as the benchmarks do with `putLong(seq)`)
   rather than allocating per call.
 - **Use `KeyValues` directly when you don't need multi-value-per-key.**
-  A `KeyListsWriter.append` costs roughly 2x a `put` (3 hashes, 3 lock
+  A `KeyListsWriter.append` costs roughly 2.5-3x a `put` in the
+  single-thread results, about a lookup plus an insert (3 hashes, 3 lock
   pairs, 4 `findSlot` walks, 2 segments -- see
   [Cost analysis](#cost-analysis)).
 - **Atomic read-modify-write via `compute`.** Use
@@ -393,7 +433,7 @@ The eviction hot path lives in
 
 1. Writer needs a fresh chunk -> `heap.tryAllocate()`.
 2. On miss, call `evictOne()` -- polls the eviction queue up to
-   `SWAP_CHECK_INTERVAL = 16` times, copies one heap chunk's bytes into a
+   `SWAP_CHECK_INTERVAL = 64` times, copies one heap chunk's bytes into a
    freshly `mmap.allocate()`-ed chunk, and posts a `PendingSwap`.
 3. Retry `heap.tryAllocate()` (now the swapped-out chunk is reclaimable).
 4. If still empty, allocate directly on mmap.
@@ -602,7 +642,7 @@ the all-hot 131 K baseline -- the read-side analogue of the KV
    24-byte entry header into the chunk buffer, then in-place header
    stores (`putDataWriteOffset`, `putMaxOrder`, `putEntryCountOrdered`).
    No volatile reads, no lock -- pure sequential writes.
-2. **Swap drain cadence**: every `SWAP_CHECK_INTERVAL = 16` appends the
+2. **Swap drain cadence**: every `SWAP_CHECK_INTERVAL = 64` appends the
    writer calls `drainSwaps()` to fold any completed mmap migrations
    into its spine and publish a new snapshot.
 3. **Chunk-boundary slow path** (tail full): `sealEnqueue(tail)` marks

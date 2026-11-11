@@ -47,7 +47,7 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Run with:
  * <pre>
- *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="SequenceWriteBenchmark"
+ *   ./gradlew :d4m-benchmark:jmh:jmh -PjmhArgs="SequenceWriteBenchmark"
  * </pre>
  */
 @BenchmarkMode(Mode.Throughput)
