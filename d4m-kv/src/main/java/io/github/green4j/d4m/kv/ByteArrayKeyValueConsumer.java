@@ -26,9 +26,11 @@ package io.github.green4j.d4m.kv;
 import io.github.green4j.d4m.common.AtomicBuffer;
 import io.github.green4j.d4m.common.UnsafeBuffer;
 
+import static io.github.green4j.d4m.common.BitSupport.alignToLong;
+
 /**
  * A {@link KeyValueConsuming.KeyValueConsumer} that stores received key-value data
- * into a growable byte array. The key and value are written contiguously.
+ * into a growable byte array. The key starts at 0 and the value at {@link #valueOffset()}.
  */
 public class ByteArrayKeyValueConsumer implements
         KeyValueConsuming.KeyValueConsumer<KeyValueConsuming.KeyValue> {
@@ -38,6 +40,7 @@ public class ByteArrayKeyValueConsumer implements
     private int slotIndex;
     private int keySize;
     private int valueSize;
+    private int valueOffset;
 
     private byte[] array;
     private AtomicBuffer buffer;
@@ -70,6 +73,16 @@ public class ByteArrayKeyValueConsumer implements
     }
 
     /**
+     * Returns the offset of the most recently received value in {@link #array()}.
+     * The value starts 8-byte aligned relative to the start of the array.
+     *
+     * @return the value offset
+     */
+    public int valueOffset() {
+        return valueOffset;
+    }
+
+    /**
      * Returns the backing byte array containing the received key-value data.
      *
      * @return the byte array, or {@code null} if no data has been received
@@ -90,8 +103,9 @@ public class ByteArrayKeyValueConsumer implements
         this.slotIndex = slotIndex;
         this.keySize = keySize;
         this.valueSize = valueSize;
+        this.valueOffset = alignToLong(keySize);
 
-        final int dataSize = keySize + valueSize;
+        final int dataSize = valueOffset + valueSize;
 
         if (array == null || array.length < dataSize) {
             array = new byte[Math.max(
@@ -120,6 +134,11 @@ public class ByteArrayKeyValueConsumer implements
         @Override
         public BinaryContent content() {
             return this;
+        }
+
+        @Override
+        public int valueOffset() {
+            return valueOffset;
         }
 
         @Override

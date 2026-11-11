@@ -38,6 +38,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -48,6 +49,14 @@ class MmapChunkAllocatorTest {
 
     @Nested
     class Allocation {
+        @Test
+        void rejectsChunkSizeNotMultipleOf8(@TempDir final File dir) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> new MmapChunkAllocator(CHUNK_SIZE + 1, dir, false, new AtomicLong()));
+            assertThrows(IllegalArgumentException.class,
+                    () -> new MmapChunkAllocator(0, dir, false, new AtomicLong()));
+        }
+
         @Test
         void allocatesDistinctDirectChunks(@TempDir final File dir) {
             final MmapChunkAllocator alloc = new MmapChunkAllocator(

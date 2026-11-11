@@ -66,6 +66,34 @@ public interface AtomicBuffer {
     ByteBuffer byteBuffer();
 
     /**
+     * Returns the address of index 0 of this buffer as used by {@code Unsafe}: the native
+     * memory address for a direct buffer, or the offset from the start of the backing
+     * array object for a heap buffer.
+     *
+     * <p>Lets code that accesses memory directly, e.g. codecs working on other buffer
+     * types, wrap the same memory without copying: for a direct buffer, the bytes at
+     * {@code [index, index + length)} of this buffer are at
+     * {@code addressOffset() + index}.</p>
+     *
+     * @return the address of index 0
+     */
+    long addressOffset();
+
+    /**
+     * Verifies that index 0 of this buffer is 8-byte aligned in memory, so that volatile,
+     * ordered and CAS access at naturally aligned indices is atomic. Misaligned atomic
+     * access can tear values or crash the JVM ({@code SIGBUS}) on some platforms, e.g.
+     * AArch64. Call it once for a buffer that is used for atomic access.
+     *
+     * <p>Heap buffers count as aligned when the start of their data is, which depends on
+     * the object layout of the JVM; {@link UnsafeBuffer#allocateHeapAligned(int)} allocates
+     * heap memory that is aligned with any layout.</p>
+     *
+     * @throws IllegalStateException if index 0 is not 8-byte aligned
+     */
+    void verifyAlignment();
+
+    /**
      * Reads a single byte at the given byte offset.
      *
      * @param index zero-based byte offset

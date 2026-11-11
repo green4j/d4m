@@ -16,6 +16,21 @@ d4m provides low-latency data structures designed for workloads where data volum
 | [`d4m-benchmark`](d4m-benchmark/README.md) | JMH benchmarks                                                                                                                                                                    |
 | `d4m-example`                              | Usage examples for both modules                                                                                                                                                   |
 
+## Binary Data Layout
+
+All collections keep binary data in buffers accessed through `AtomicBuffer` and place every stored item 8-byte aligned:
+
+| Collection     | Starts 8-byte aligned | Padding                                       |
+|----------------|-----------------------|-----------------------------------------------|
+| `d4m-sequence` | entry payload         | after the payload, up to the next entry       |
+| `d4m-kv`       | entry, key and value  | the key is padded to 8 bytes before the value |
+
+This lets an application encode and decode its data in place with direct primitive access: `getLong`/`putLong` and the like at fixed offsets of its own schema, or a flyweight codec (e.g. SBE over an Agrona buffer wrapping the same memory: the native address `AtomicBuffer.addressOffset() + offset` for a direct buffer, the backing array of `AtomicBuffer.byteBuffer()` at its array offset plus `offset` for a heap one), without copying. Since an item starts aligned, a field is aligned exactly when its offset within the item is, and multi-byte reads and writes avoid the cost of misaligned access. All multi-byte accessors use native byte order.
+
+- Padding bytes have undefined content: read only within the item's length.
+- The alignment holds for the absolute address in direct, memory-mapped and heap memory alike, as long as the buffer a collection is built on starts 8-byte aligned. The collections allocate their own buffers that way; a buffer passed in by the application (e.g. to `KeyValueBuffer`) is its responsibility. Heap memory is allocated with `UnsafeBuffer.allocateHeapAligned`, which aligns it whatever offset the JVM gives to the data of a `byte[]` (e.g. with `-XX:+UseCompactObjectHeaders`). Buffers that are used for volatile, ordered or CAS access are checked with `AtomicBuffer.verifyAlignment()` when they are created, since misaligned atomic access can tear values or crash the JVM on some platforms.
+- `d4m-kv` reads copy the key and the value into a buffer supplied by the consumer, at the offsets it chooses (`KeyValueConsuming.KeyValue.valueOffset()`), so the alignment there is up to the consumer; the stored key and value are accessed in place by an `EvictionListener`.
+
 ## Binaries
 
 Binaries for Maven, Ivy, Gradle, and others can be found at

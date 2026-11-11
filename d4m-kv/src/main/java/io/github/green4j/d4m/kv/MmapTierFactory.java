@@ -235,7 +235,7 @@ public final class MmapTierFactory implements TierFactory, AutoCloseable {
         final AtomicBuffer result = new UnsafeBuffer(
                 memoryTierOffHeap
                         ? ByteBuffer.allocateDirect(memoryTierSize)
-                        : ByteBuffer.allocate(memoryTierSize)
+                        : UnsafeBuffer.allocateHeapAligned(memoryTierSize)
         );
 
         if (listener != null) {

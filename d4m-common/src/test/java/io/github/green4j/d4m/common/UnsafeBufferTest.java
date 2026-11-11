@@ -34,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -382,6 +383,86 @@ class UnsafeBufferTest {
 
             assertEquals(1, directBuffer.getByte(0));
             assertEquals(4, directBuffer.getByte(3));
+        }
+    }
+
+    /**
+     * Verifies the address of index 0 exposed for direct memory access.
+     */
+    @Nested
+    class AddressOffset {
+        @Test
+        void directRegionStartsAtItsOffset() {
+            final ByteBuffer direct = ByteBuffer.allocateDirect(256);
+            final UnsafeBuffer whole = new UnsafeBuffer(direct);
+            final UnsafeBuffer region = new UnsafeBuffer(direct, 64, 128);
+
+            assertEquals(whole.addressOffset() + 64, region.addressOffset());
+            assertEquals(0, whole.addressOffset() & 7, "Direct memory is not 8-byte aligned");
+        }
+
+        @Test
+        void heapRegionIsOffsetWithinArray() {
+            final byte[] data = new byte[256];
+            final UnsafeBuffer whole = new UnsafeBuffer(data);
+            final UnsafeBuffer region = new UnsafeBuffer(data, 40, 100);
+
+            assertEquals(whole.addressOffset() + 40, region.addressOffset());
+            assertEquals(whole.addressOffset() + 40, new UnsafeBuffer(ByteBuffer.wrap(data), 40, 100).addressOffset());
+        }
+
+        @Test
+        void followsRewrap() {
+            final UnsafeBuffer buffer = new UnsafeBuffer(new byte[16]);
+            final ByteBuffer direct = ByteBuffer.allocateDirect(64);
+            final long expected = new UnsafeBuffer(direct).addressOffset() + 8;
+
+            buffer.wrap(direct, 8, 32);
+
+            assertEquals(expected, buffer.addressOffset());
+        }
+    }
+
+    /**
+     * Verifies aligned heap allocation and the alignment check.
+     */
+    @Nested
+    class Alignment {
+        @Test
+        void heapAllocationIsAlignedWithExactCapacity() {
+            for (int capacity = 1; capacity <= 64; capacity++) {
+                final ByteBuffer buffer = UnsafeBuffer.allocateHeapAligned(capacity);
+                final UnsafeBuffer unsafe = new UnsafeBuffer(buffer);
+
+                assertEquals(capacity, buffer.capacity());
+                assertFalse(buffer.isDirect());
+                assertEquals(0, buffer.alignmentOffset(0, Long.BYTES));
+                assertEquals(0, unsafe.addressOffset() & 7);
+                assertDoesNotThrow(unsafe::verifyAlignment);
+            }
+        }
+
+        @Test
+        void alignedBuffersPassVerification() {
+            assertDoesNotThrow(() -> new UnsafeBuffer(ByteBuffer.allocateDirect(64)).verifyAlignment());
+            assertDoesNotThrow(() -> new UnsafeBuffer(ByteBuffer.allocateDirect(64), 8, 32).verifyAlignment());
+            assertDoesNotThrow(() -> new UnsafeBuffer(UnsafeBuffer.allocateHeapAligned(64), 16, 32)
+                    .verifyAlignment());
+        }
+
+        @Test
+        void misalignedBuffersFailVerification() {
+            assertThrows(IllegalStateException.class,
+                    () -> new UnsafeBuffer(ByteBuffer.allocateDirect(64), 4, 32).verifyAlignment());
+            assertThrows(IllegalStateException.class,
+                    () -> new UnsafeBuffer(UnsafeBuffer.allocateHeapAligned(64), 4, 32).verifyAlignment());
+        }
+
+        @Test
+        void heapAllocationRejectsCapacityThatCannotBePadded() {
+            assertThrows(IllegalArgumentException.class, () -> UnsafeBuffer.allocateHeapAligned(-1));
+            assertThrows(IllegalArgumentException.class,
+                    () -> UnsafeBuffer.allocateHeapAligned(Integer.MAX_VALUE - 6));
         }
     }
 }

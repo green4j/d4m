@@ -87,9 +87,11 @@ public class Chunk {
     /**
      * Creates a chunk backed by the given buffer.
      *
-     * @param buffer the atomic buffer holding chunk data
+     * @param buffer the atomic buffer holding chunk data, 8-byte aligned
+     * @throws IllegalStateException if the buffer is not 8-byte aligned
      */
     public Chunk(final AtomicBuffer buffer) {
+        buffer.verifyAlignment();
         this.buffer = buffer;
     }
 

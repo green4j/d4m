@@ -42,7 +42,7 @@ class ChunkTest {
     private static final int CHUNK_SIZE = 1024;
 
     private static Chunk freshChunk() {
-        final ByteBuffer byteBuffer = ByteBuffer.allocate(CHUNK_SIZE);
+        final ByteBuffer byteBuffer = UnsafeBuffer.allocateHeapAligned(CHUNK_SIZE);
         final AtomicBuffer buffer = new UnsafeBuffer(byteBuffer);
         return new Chunk(buffer);
     }
@@ -262,7 +262,7 @@ class ChunkTest {
         @Test
         void heapByteBufferIsHeapBased() {
             final Chunk chunk =
-                    new Chunk(new UnsafeBuffer(ByteBuffer.allocate(CHUNK_SIZE)));
+                    new Chunk(new UnsafeBuffer(UnsafeBuffer.allocateHeapAligned(CHUNK_SIZE)));
 
             assertTrue(chunk.isHeapBased());
             assertFalse(chunk.isMmapBased());

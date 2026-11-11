@@ -123,6 +123,8 @@ public class KeyValueBuffer implements
 
     /**
      * Creates a buffer backed by the given {@link AtomicBuffer} with an optional listener.
+     * Entries, keys and values are 8-byte aligned relative to the start of the buffer, and
+     * in memory when the buffer starts 8-byte aligned.
      *
      * @param buffer   the backing buffer whose capacity must be a power of two and greater than the header size
      * @param listener optional listener for insert/update/eviction events, or {@code null}
@@ -153,6 +155,17 @@ public class KeyValueBuffer implements
      */
     public int keyOffset(final int index) {
         return index + HEADER_SIZE;
+    }
+
+    // The value follows the key padded to 8 bytes, so both start 8-byte aligned.
+    static int valueOffset(final int keyOffset,
+                           final int keySize) {
+        return keyOffset + alignToLong(keySize);
+    }
+
+    static int dataSize(final int keySize,
+                        final int valueSize) {
+        return alignToLong(keySize) + valueSize;
     }
 
     /**
@@ -271,7 +284,7 @@ public class KeyValueBuffer implements
                                                          final int valueSize) {
         keyValueWriter.checkNotInUse();
 
-        final int totalRequiredAligned = alignToLong(HEADER_SIZE + keySize + valueSize);
+        final int totalRequiredAligned = alignToLong(HEADER_SIZE + dataSize(keySize, valueSize));
 
         if (totalRequiredAligned > capacity) {
             return null; // data total is too large for the buffer
@@ -407,9 +420,9 @@ public class KeyValueBuffer implements
             return;
         }
 
-        final int dataStart = index + HEADER_SIZE;
-        final int dataSize = keySize + valueSize;
-        content.buffer().putBytes(content.offset(), buffer, dataStart, dataSize);
+        final int keyStart = index + HEADER_SIZE;
+        content.buffer().putBytes(content.offset(), buffer, keyStart, keySize);
+        content.buffer().putBytes(kv.valueOffset(), buffer, valueOffset(keyStart, keySize), valueSize);
         kv.apply();
     }
 
@@ -445,8 +458,7 @@ public class KeyValueBuffer implements
             return;
         }
 
-        final int dataStart = index + HEADER_SIZE;
-        content.buffer().putBytes(content.offset(), buffer, dataStart + keySize, valueSize);
+        content.buffer().putBytes(content.offset(), buffer, valueOffset(index + HEADER_SIZE, keySize), valueSize);
         v.apply();
     }
 
@@ -532,7 +544,7 @@ public class KeyValueBuffer implements
             spaceToFree = usedSpace;
             newOldestIndex = -1;
         } else {
-            spaceToFree = alignToLong(HEADER_SIZE + keySize + valueSize);
+            spaceToFree = alignToLong(HEADER_SIZE + dataSize(keySize, valueSize));
             newOldestIndex = nextEntryIndex;
         }
 
@@ -655,7 +667,7 @@ public class KeyValueBuffer implements
                            final int valueSize) {
             super.start(
                     nextIndex + HEADER_SIZE,
-                    keySize + valueSize,
+                    dataSize(keySize, valueSize),
                     slotIndex,
                     keySize,
                     valueSize
@@ -667,6 +679,11 @@ public class KeyValueBuffer implements
         @Override
         public BinaryContent content() {
             return this;
+        }
+
+        @Override
+        public int valueOffset() {
+            return KeyValueBuffer.valueOffset(offset, keySize);
         }
 
         @Override
@@ -718,7 +735,7 @@ public class KeyValueBuffer implements
             final int valueSize = unpackValueSize(secondLong);
 
             super.start(
-                    index + HEADER_SIZE + keySize,
+                    valueOffset(index + HEADER_SIZE, keySize),
                     valueSize,
                     slotIndex,
                     keySize,

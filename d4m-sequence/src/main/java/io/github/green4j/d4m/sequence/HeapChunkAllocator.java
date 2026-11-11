@@ -118,7 +118,8 @@ public final class HeapChunkAllocator {
      * @param maxHeapBytes  maximum total heap memory to allocate; shrunk down
      *                      to a whole number of slabs (at least one)
      * @param epochCounter  shared epoch counter for stamping chunks
-     * @throws IllegalArgumentException if {@code chunksPerSlab < 1}
+     * @throws IllegalArgumentException if {@code chunkSize} is not a positive multiple of 8,
+     *                                  or {@code chunksPerSlab < 1}
      */
     public HeapChunkAllocator(final int chunkSize,
                               final int chunksPerSlab,
@@ -137,13 +138,17 @@ public final class HeapChunkAllocator {
      *                      to a whole number of slabs (at least one)
      * @param epochCounter  shared epoch counter for stamping chunks
      * @param listener      optional listener for lifecycle events, or {@code null}
-     * @throws IllegalArgumentException if {@code chunksPerSlab < 1}
+     * @throws IllegalArgumentException if {@code chunkSize} is not a positive multiple of 8,
+     *                                  or {@code chunksPerSlab < 1}
      */
     public HeapChunkAllocator(final int chunkSize,
                               final int chunksPerSlab,
                               final long maxHeapBytes,
                               final AtomicLong epochCounter,
                               final Listener listener) {
+        if (chunkSize <= 0 || (chunkSize & 7) != 0) {
+            throw new IllegalArgumentException("chunkSize must be a positive multiple of 8, got " + chunkSize);
+        }
         this.chunkSize = chunkSize;
         this.epochCounter = epochCounter;
         this.listener = listener;
@@ -162,7 +167,7 @@ public final class HeapChunkAllocator {
         }
         final int numSlabs = (int) slabs;
         for (int s = 0; s < numSlabs; s++) {
-            final ByteBuffer slab = ByteBuffer.allocate(realSlab);
+            final ByteBuffer slab = UnsafeBuffer.allocateHeapAligned(realSlab);
             for (int i = 0; i < chunksPerSlab; i++) {
                 final int off = i * chunkSize;
                 slab.position(off).limit(off + chunkSize);
