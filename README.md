@@ -4,7 +4,7 @@ In-memory data collections, typically with eviction to external memory such as S
 
 ## Overview
 
-d4m provides low-latency data structures designed for workloads where data volume exceeds available heap memory. Hot data lives on the Java heap; cold data is transparently evicted to memory-mapped files, keeping the working set bounded while preserving access to the full dataset.
+d4m provides low-latency data structures designed for workloads where data volume exceeds available heap memory. Hot data lives in memory, on the Java heap or off-heap; cold data is transparently evicted to memory-mapped or plain files, keeping the working set bounded while preserving access to the full dataset.
 
 ## Modules
 
@@ -13,8 +13,9 @@ d4m provides low-latency data structures designed for workloads where data volum
 | `d4m-common`                               | Shared primitives: `AtomicBuffer`, `UnsafeBuffer`, bit/byte utilities                                                                                                             |
 | [`d4m-sequence`](d4m-sequence/README.md)   | Ordered append-optimised sequence with COW inserts and cursor-based iteration                                                                                                     |
 | [`d4m-kv`](d4m-kv/README.md)               | Tiered key-value store (`KeyValueStorage`) plus an append-only multi-value-per-key collection (`KeyListStorage`) built on top of it; hash-sharded segments and cascading eviction |
+| [`d4m-queue`](d4m-queue/README.md)         | Single-producer/single-consumer binary queue of off-heap segments with a disk journal or overflow; the managing thread owns all files                                             |
 | [`d4m-benchmark`](d4m-benchmark/README.md) | JMH benchmarks                                                                                                                                                                    |
-| `d4m-example`                              | Usage examples for both modules                                                                                                                                                   |
+| `d4m-example`                              | Usage examples for the modules                                                                                                                                                    |
 
 ## Binary Data Layout
 
@@ -24,6 +25,7 @@ All collections keep binary data in buffers accessed through `AtomicBuffer` and 
 |----------------|-----------------------|-----------------------------------------------|
 | `d4m-sequence` | entry payload         | after the payload, up to the next entry       |
 | `d4m-kv`       | entry, key and value  | the key is padded to 8 bytes before the value |
+| `d4m-queue`    | message payload       | after the payload, up to the next frame       |
 
 This lets an application encode and decode its data in place with direct primitive access: `getLong`/`putLong` and the like at fixed offsets of its own schema, or a flyweight codec (e.g. SBE over an Agrona buffer wrapping the same memory: the native address `AtomicBuffer.addressOffset() + offset` for a direct buffer, the backing array of `AtomicBuffer.byteBuffer()` at its array offset plus `offset` for a heap one), without copying. Since an item starts aligned, a field is aligned exactly when its offset within the item is, and multi-byte reads and writes avoid the cost of misaligned access. All multi-byte accessors use native byte order.
 
@@ -116,6 +118,20 @@ and per-benchmark interpretation.
 | `SequenceHistoricalReadBenchmark.read`           | 1024      | 112.66M |  166.75M |  144.72M |
 | `SequenceRealtimeBroadcastBenchmark.broadcast`   | 1         | 172.48M |  285.71M |  252.98M |
 | `SequenceScaledBroadcastBenchmark.twoReaders`    | 1024      | 152.19M |  147.10M |  132.84M |
+
+### `d4m-queue` (messages/sec, 200-byte payload, `offer`)
+
+`transfer`: one writer, one reader and the manager on separate threads, the writer at most 1 M messages ahead of the reader. `writeRead`: all three roles on one thread. See
+[`d4m-benchmark/README.md`](d4m-benchmark/README.md) for both write paths and how to read the numbers.
+
+| Benchmark                                  | `OVERFLOW` | `JOURNAL` |
+|--------------------------------------------|-----------:|----------:|
+| `QueueWriteReadBenchmark.writeRead` ¹      |     24.57M |     8.98M |
+| `QueueTransferBenchmark.transfer:messages` |     31.61M |    16.31M |
+
+¹ Writer, reader and manager on the same thread, no cross-core transfer.
+
+Latency (`QueueLatencyBenchmark`, `Mode.SampleTime`): a round trip writer -> reader -> writer takes **125 ns at p50 and 583 ns at p99** while the reader keeps up. When the reader is slower than the writer, a burst builds a backlog: writing 1 M messages until a reader spending \~125 ns each has consumed the last one takes 163 ms at p50, with the backlog overflowing a 64 MB memory pool to disk and back.
 
 ## License
 

@@ -123,6 +123,7 @@ def projectPom = {
 def commonProject = project(':d4m-common')
 def kvProject = project(':d4m-kv')
 def sequenceProject = project(':d4m-sequence')
+def queueProject = project(':d4m-queue')
 def allProject = project(':d4m-all')
 def benchmarkJmhProject = project(':d4m-benchmark:jmh')
 def exampleProject = project(':d4m-example')
@@ -130,6 +131,7 @@ def exampleProject = project(':d4m-example')
 configure([commonProject,
            kvProject,
            sequenceProject,
+           queueProject,
            allProject,
            benchmarkJmhProject,
            exampleProject]) {
@@ -202,7 +204,8 @@ configure([commonProject,
 
 configure([commonProject,
            kvProject,
-           sequenceProject]) {
+           sequenceProject,
+           queueProject]) {
     apply plugin: 'jacoco'
     apply plugin: 'maven-publish'
     apply plugin: 'signing'
@@ -354,17 +357,58 @@ configure(sequenceProject) {
     }
 }
 
+configure(queueProject) {
+    description = 'D4M Queue – single-producer/single-consumer binary queue with spill to disk'
+
+    dependencies {
+        api(commonProject)
+    }
+
+    publishing {
+        publications {
+            d4mQueue(MavenPublication) {
+                from components.java
+                pom(projectPom)
+                pom.withXml {
+                    if (project.description) {
+                        asNode().appendNode('description', project.description)
+                    }
+                }
+            }
+        }
+
+        repositories {
+            maven {
+                name = 'MavenCentral'
+                url = sonatypeReleasesRepoUrl
+                credentials {
+                    username = sonatypeUsername
+                    password = sonatypePassword
+                }
+            }
+        }
+    }
+
+    signing {
+        if (signingKey) {
+            useInMemoryPgpKeys(signingKey, signingPassword)
+        }
+        sign publishing.publications.d4mQueue
+    }
+}
+
 configure(allProject) {
     apply plugin: 'maven-publish'
     apply plugin: 'signing'
     apply plugin: 'com.github.johnrengelman.shadow'
 
-    description = 'D4M All – bundled jar of d4m-common, d4m-kv, and d4m-sequence'
+    description = 'D4M All – bundled jar of d4m-common, d4m-kv, d4m-sequence, and d4m-queue'
 
     dependencies {
         api commonProject
         api kvProject
         api sequenceProject
+        api queueProject
     }
 
     shadowJar {
@@ -381,6 +425,7 @@ configure(allProject) {
             include(project(commonProject.path))
             include(project(kvProject.path))
             include(project(sequenceProject.path))
+            include(project(queueProject.path))
         }
     }
 
@@ -390,7 +435,8 @@ configure(allProject) {
         from files(
                 commonProject.sourceSets.main.allSource,
                 kvProject.sourceSets.main.allSource,
-                sequenceProject.sourceSets.main.allSource
+                sequenceProject.sourceSets.main.allSource,
+                queueProject.sourceSets.main.allSource
         )
     }
 
@@ -398,6 +444,7 @@ configure(allProject) {
         source += commonProject.sourceSets.main.allJava
         source += kvProject.sourceSets.main.allJava
         source += sequenceProject.sourceSets.main.allJava
+        source += queueProject.sourceSets.main.allJava
     }
 
     publishing {
@@ -413,7 +460,7 @@ configure(allProject) {
                         asNode().appendNode('description', project.description)
                     }
                 }
-                addDepsFromProjects(pom, [commonProject, kvProject, sequenceProject])
+                addDepsFromProjects(pom, [commonProject, kvProject, sequenceProject, queueProject])
             }
         }
 
@@ -443,6 +490,7 @@ configure(benchmarkJmhProject) {
     dependencies {
         implementation kvProject
         implementation sequenceProject
+        implementation queueProject
 
         implementation "org.openjdk.jmh:jmh-core:${jmhVersion}"
         annotationProcessor "org.openjdk.jmh:jmh-generator-annprocess:${jmhVersion}"
@@ -467,6 +515,7 @@ configure(exampleProject) {
     dependencies {
         implementation kvProject
         implementation sequenceProject
+        implementation queueProject
         implementation "org.hdrhistogram:HdrHistogram:${hdrhistogramVersion}"
     }
 

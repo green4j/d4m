@@ -1,6 +1,6 @@
 # d4m-benchmark
 
-JMH benchmarks for the d4m KV stack (`KeyValues` + `KeyLists`) and the sequence module.
+JMH benchmarks for the d4m KV stack (`KeyValues` + `KeyLists`), the sequence module and the queue module.
 
 > **DISCLAIMER: The tests and their results below are indicative only.** 
 > 1. The headline tables below come from a moderate JMH run
@@ -35,9 +35,10 @@ Full canonical configuration (\~ tens of minutes per benchmark class):
 ./gradlew :d4m-benchmark:jmh:jmh -PjmhArgs="KeyListsReadBenchmark"
 ./gradlew :d4m-benchmark:jmh:jmh -PjmhArgs="KeyListsConcurrentReadWriteBenchmark"
 ./gradlew :d4m-benchmark:jmh:jmh -PjmhArgs="benchmark.jmh.sequence"
+./gradlew :d4m-benchmark:jmh:jmh -PjmhArgs="benchmark.jmh.queue"
 ```
 
-Short indicative configuration (\~2 min per kv class, \~5 min per sequence class at `chunkSize=65536`):
+Short indicative configuration (\~2 min per kv class, \~5 min per sequence class at `chunkSize=65536`, \~4-5 min per queue class):
 
 ```
 ./gradlew :d4m-benchmark:jmh:jmh \
@@ -703,3 +704,66 @@ Techniques to get the most out of `Sequence` for typical workloads:
 - **Keep cursors advancing.** A reader's ref-count pin keeps its
   current / tail chunk out of eviction (what keeps broadcast readers
   hot) -- but a stalled cursor pins heap chunks and starves the pool.
+
+## `d4m-queue`
+
+### Parameters
+
+- **`diskMode`** -- `OVERFLOW` (the disk takes only what does not fit into memory; with the lag bound below nothing reaches it) or `JOURNAL` (every message is written to disk by the manager thread).
+- **`writePath`** -- `OFFER` copies the payload into the queue; `CLAIM` claims a region, copies the same payload into it and commits, so the two differ only in the API calls.
+- **`burst`** (latency) -- messages written per invocation; the timed message is the last one, so it waits behind `burst - 1` others. `1` is a single message on an idle queue; `1000000` (\~216 MB) exceeds the latency benchmark's 64 MB memory pool.
+- **`readerNs`** (latency) -- time the reader spends on every message: `0` (the reader keeps up with the writer) or `100` (it is slower than the writer, like a consumer that forwards to a slower system, so a burst builds a backlog).
+
+The throughput benchmarks use 200-byte payloads, 32 MB segments, a 512 MB memory pool and 2 spare segments, wired by [`BenchmarkSupport`](jmh/src/main/java/io/github/green4j/d4m/benchmark/jmh/queue/BenchmarkSupport.java), and run with `-Xmx1g -XX:MaxDirectMemorySize=1g`. The latency benchmark uses 8 MB segments and a 64 MB pool so that a large backlog reaches the disk. Each trial opens a fresh queue in a temporary directory.
+
+### What each benchmark measures
+
+| Benchmark                           | One invocation =                                                                                                                      | Notes                                                                                                                                                                                                                                        |
+|-------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `QueueWriteReadBenchmark.writeRead` | one message written and read back on the same thread; `doWork()` is called only when the writer needs a new segment                   | The CPU cost of the queue operations without a cross-core transfer. With `JOURNAL` the segment is written to disk on the same thread, once per segment.                                                                                      |
+| `QueueTransferBenchmark.transfer`   | one writer step (writer thread) and one `poll` of up to 256 messages (reader thread); the manager runs on a third thread              | The writer stays at most 1 M messages (\~216 MB) ahead of the reader, so the backlog fits the memory pool and the disk usage stays bounded. The primary score counts invocations; read the `offered` and `messages` counters (messages/sec). |
+| `QueueLatencyBenchmark.burst`       | `burst` messages written, then a wait until the reader (`readerNs` per message) has consumed the last one, seen through `readerSeq()` | `Mode.SampleTime`: the distribution of the time from the write of the first message of a burst to the writer seeing the last one consumed. It includes the writer's own work on the burst; with a slower reader it is the wait of the last message behind the backlog. With `burst = 1` that is one round trip. |
+
+### Results
+
+| Benchmark                                      | `diskMode` | `OFFER` | `CLAIM` |
+|------------------------------------------------|------------|--------:|--------:|
+| `QueueWriteReadBenchmark.writeRead`            | `OVERFLOW` |  24.57M |  24.61M |
+| `QueueWriteReadBenchmark.writeRead`            | `JOURNAL`  |   8.98M |   8.94M |
+| `QueueTransferBenchmark.transfer:messages`     | `OVERFLOW` |  31.61M |  34.70M |
+| `QueueTransferBenchmark.transfer:messages`     | `JOURNAL`  |  16.31M |  15.23M |
+
+How to read them:
+
+- **`writeRead`, `OVERFLOW`** -- \~40 ns per message for a write and a read together, everything in cache.
+- **`transfer`, `OVERFLOW`** -- bound by the reader. The writer reaches the lag bound and waits (its invocations are \~5-6x the `offered` count), so the reader works 1 M messages behind the writer and reads memory that has left the caches. A reader that keeps up reads lines the writer has just written and moves more, see `QueueThroughput` in the [queue README](../d4m-queue/README.md#performance-indicative).
+- **`JOURNAL`** -- bound by the disk: every message is written once by the manager thread (\~3.5 GB/s at 16 M messages/sec). In `writeRead` the same thread also writes the disk, hence the large error bars.
+- **`OFFER` vs `CLAIM`** -- equal within the noise: both copy 200 bytes; `CLAIM` saves an application its own staging buffer, not time.
+
+#### Latency
+
+`QueueLatencyBenchmark.burst`, ns, `-wi 3 -w 5 -i 3 -r 10 -f 1`:
+
+| `burst`   | `readerNs` |         p50 |         p90 |         p99 |       p99.9 |         max |
+|-----------|-----------:|------------:|------------:|------------:|------------:|------------:|
+| 1         |          0 |         125 |         416 |         583 |       1,374 |     154,880 |
+| 1         |        100 |         292 |         750 |         958 |       3,332 |     185,344 |
+| 1,000     |          0 |      16,448 |      18,016 |     148,736 |     158,976 |     676,864 |
+| 1,000     |        100 |     125,440 |     127,232 |     152,320 |     179,200 |   3,915,776 |
+| 1,000,000 |          0 |  26,148,864 |  38,574,490 |  58,851,328 |  73,860,645 |  74,055,680 |
+| 1,000,000 |        100 | 163,053,568 | 169,869,312 | 176,506,798 | 191,102,976 | 191,102,976 |
+
+How to read them:
+
+- **The reader keeps up** (`burst = 1`) -- a round trip of 125 ns at the median: the write, the transfer to the reader and the reader's acknowledgement back. `readerNs = 100` adds the reader's own work (the busy-wait takes \~125-170 ns, see the timer note below).
+- **A message behind a backlog** -- the latency is the backlog times the reader's cost per message: 1 000 messages at \~125 ns cost 125 us, with a narrow distribution, so the queue adds nothing visible on top of the reader.
+- **The backlog overflows to disk** (`burst = 1 000 000`, `readerNs = 100`) -- the reader is slower than the writer, the 64 MB pool fills and up to \~190 MB of the backlog goes to disk and is loaded back ahead of the reader. The cost per message grows from \~125 ns to \~163 ns: the disk round trip costs \~30 %, and the distribution stays narrow. With `readerNs = 0` the writer is only slightly faster than the reader, so the backlog and the time vary more between bursts.
+
+Measurement practice used here:
+
+- **`Mode.SampleTime`** for latency: JMH records the duration of sampled invocations and reports percentiles and the maximum, not only the mean.
+- **One timed thread, closed loop.** Cross-thread latency is measured as a round trip on the writer's thread (as in ping-pong benchmarks): the invocation ends when the writer sees the reader's acknowledgement (`readerSeq()`), so no clocks of two threads are compared. The reader and the manager are helper threads started in `@Setup`, outside JMH's timing; `@Group` is not used because it times each thread's method separately.
+- **Backlog by bursts, as in JCTools' `QueueBurstCost`**: a burst models a message arriving behind others; `readerNs` makes the reader slower than the writer, which is what a queue in front of a slow consumer absorbs.
+- **Closed loop limits.** The next invocation starts only after the previous one completes, so a stall delays the following sample instead of being recorded against it (coordinated omission). The numbers describe each backlog on an otherwise idle queue, not an open-loop arrival rate.
+- **Timer resolution.** On Apple silicon `System.nanoTime()` ticks every 41.67 ns, so short samples are multiples of it (41, 125, 166, ...), and the `readerNs` busy-wait overshoots by up to a tick or two. On x86 Linux the resolution is in single nanoseconds.
+- **Cores.** The writer, the reader and the manager each busy-spin; they need three free cores, and the tails (p99.99, max) include OS scheduling noise on a shared machine.
