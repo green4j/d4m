@@ -28,7 +28,6 @@ import io.github.green4j.d4m.common.UnsafeBuffer;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-import java.nio.ByteBuffer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -39,7 +38,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 class ChunkSnapshotTest {
     private static Chunk dummyChunk(final long epoch) {
         final AtomicBuffer buffer =
-                new UnsafeBuffer(ByteBuffer.allocate(512));
+                new UnsafeBuffer(UnsafeBuffer.allocateHeapAligned(512));
         final Chunk chunk = new Chunk(buffer);
         chunk.putChunkEpoch(epoch);
         return chunk;

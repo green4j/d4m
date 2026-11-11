@@ -35,11 +35,20 @@ public interface KeyValueConsuming {
      */
     interface KeyValue extends Applicable {
         /**
-         * Returns the writable binary region for both key and value data.
+         * Returns the writable binary region for both key and value data. The key starts
+         * at the offset of the content, the value at {@link #valueOffset()}.
          *
          * @return the binary content handle
          */
         BinaryContent content();
+
+        /**
+         * Returns the offset of the value in the buffer of {@link #content()}. The region
+         * {@code [valueOffset(), valueOffset() + valueSize)} does not overlap the key.
+         *
+         * @return the offset of the value
+         */
+        int valueOffset();
     }
 
     /**

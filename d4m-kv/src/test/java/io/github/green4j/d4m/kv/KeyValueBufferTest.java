@@ -115,10 +115,25 @@ class KeyValueBufferTest {
                 slotIndex, key.length(), value.length());
         if (kv != null) {
             final int index = kv.index();
-            writeAndApply(kv, (key + value).getBytes());
+            final BinaryContent content = kv.content();
+            final byte[] k = key.getBytes();
+            final byte[] v = value.getBytes();
+            content.buffer().putBytes(content.offset(), k, 0, k.length);
+            content.buffer().putBytes(kv.valueOffset(), v, 0, v.length);
+            kv.apply();
             return index;
         }
         return -1;
+    }
+
+    private static void assertKeyAndValue(final ByteArrayKeyValueConsumer consumer,
+                                          final String key,
+                                          final String value) {
+        final byte[] array = consumer.array();
+        assertArrayEquals(key.getBytes(), Arrays.copyOf(array, consumer.keySize()));
+        final int valueOffset = consumer.valueOffset();
+        assertArrayEquals(value.getBytes(),
+                Arrays.copyOfRange(array, valueOffset, valueOffset + consumer.valueSize()));
     }
 
     private void writeAndApply(final KeyValueConsuming.KeyValue kv,
@@ -186,8 +201,8 @@ class KeyValueBufferTest {
             writeAndApply(kv, "helloworld12345".getBytes());
 
             assertEquals(1, buffer.size());
-            assertEquals(32, buffer.usedSpace());
-            assertEquals(128 - 32, buffer.freeSpace());
+            assertEquals(40, buffer.usedSpace()); // h(16) + align8(5) + 10 -> 40
+            assertEquals(128 - 40, buffer.freeSpace());
             assertFalse(buffer.isEmpty());
             assertEquals(0, buffer.oldestIndex());
             assertEquals(0, buffer.newestIndex());
@@ -272,10 +287,45 @@ class KeyValueBufferTest {
             assertEquals(key.length(), consumer.keySize());
             assertEquals(value.length(), consumer.valueSize());
 
-            final byte[] expected = (key + value).getBytes();
-            final byte[] actual = Arrays.copyOf(
-                    consumer.array(), consumer.keySize() + consumer.valueSize());
-            assertArrayEquals(expected, actual);
+            assertEquals(8, consumer.valueOffset());
+            assertKeyAndValue(consumer, key, value);
+        }
+
+        @Test
+        void readPlacesValueWhereConsumerAsks() {
+            putKeyValue(1, "hello", "world");
+            final UnsafeBuffer target = new UnsafeBuffer(new byte[32]);
+            final BinaryContent content = new BinaryContent() {
+                @Override
+                public AtomicBuffer buffer() {
+                    return target;
+                }
+
+                @Override
+                public int offset() {
+                    return 3;
+                }
+            };
+
+            buffer.read(0, (slotIndex, keySize, valueSize) -> new KeyValueConsuming.KeyValue() {
+                @Override
+                public BinaryContent content() {
+                    return content;
+                }
+
+                @Override
+                public int valueOffset() {
+                    return 3 + keySize; // contiguous, unaligned
+                }
+
+                @Override
+                public void apply() {
+                }
+            });
+
+            final byte[] actual = new byte[10];
+            target.getBytes(3, actual, 0, actual.length);
+            assertArrayEquals("helloworld".getBytes(), actual);
         }
 
         @Test
@@ -326,12 +376,7 @@ class KeyValueBufferTest {
                 assertEquals((keyPrefix + i).length(), consumer.keySize());
                 assertEquals((valuePrefix + i).length(), consumer.valueSize());
 
-                final byte[] expected = (keyPrefix + i + valuePrefix + i).getBytes();
-                final byte[] actual = Arrays.copyOf(
-                        consumer.array(),
-                        consumer.keySize() + consumer.valueSize()
-                );
-                assertArrayEquals(expected, actual);
+                assertKeyAndValue(consumer, keyPrefix + i, valuePrefix + i);
             }
         }
 
@@ -451,9 +496,10 @@ class KeyValueBufferTest {
     class Eviction {
         @Test
         void evictsOldestWhenSpaceNeeded() {
-            putKeyValue(1, "key1", "value_for_the_key_of_the_test_run_________1");
-            putKeyValue(2, "key2", "value_for_the_key_of_the_test_run_________2");
-            putKeyValue(3, "key2", "value_for_the_key_of_the_test_run_________3");
+            // 64-byte entries: h(16) + align8(4) + 40
+            putKeyValue(1, "key1", "value_for_the_key_of_the_test_run______1");
+            putKeyValue(2, "key2", "value_for_the_key_of_the_test_run______2");
+            putKeyValue(3, "key2", "value_for_the_key_of_the_test_run______3");
 
             assertEquals(2, buffer.size());
             assertEquals(1, listener.evictEvents.size());
@@ -493,7 +539,7 @@ class KeyValueBufferTest {
             for (int i = 0; i < 6; i++) {
                 putKeyValue(i, "key123456789",
                         "value_of_kvalue_of_kvalue_of_kvalue_of_kvalue_of_kvalue_of_k"
-                                + "value_of_kvalue_of_kvalue_of_kvalue_of_k");
+                                + "value_of_kvalue_of_kvalue_of_kvalue_");
             }
 
             assertFalse(buffer.isEmpty());
@@ -511,7 +557,7 @@ class KeyValueBufferTest {
             for (int i = 0; i < 6; i++) {
                 putKeyValue(i, "key123456789",
                         "value_of_kvalue_of_kvalue_of_kvalue_of_kvalue_of_kvalue_of_k"
-                                + "value_of_kvalue_of_kvalue_of_kvalue_of_k");
+                                + "value_of_kvalue_of_kvalue_of_kvalue_");
             }
 
             assertFalse(buffer.isEmpty());
@@ -527,8 +573,8 @@ class KeyValueBufferTest {
             putKeyValue(2, "123", "123456");
             putKeyValue(3, "123", "123456");
             putKeyValue(4, "12345", "123456789123");
-            putKeyValue(4, "123456789", "123456789123456789");
-            putKeyValue(4, "123456789", "123456789123456789");
+            putKeyValue(4, "123456789", "1234567891234567"); // h(16) + align8(9) + 16 = 48
+            putKeyValue(4, "123456789", "1234567891234567");
 
             assertFalse(buffer.isEmpty());
             assertEquals(1, buffer.size());
@@ -747,10 +793,7 @@ class KeyValueBufferTest {
             assertEquals(expectedSlot, consumer.slotIndex());
             assertEquals(expectedKey.length(), consumer.keySize());
             assertEquals(expectedValue.length(), consumer.valueSize());
-            final byte[] expected = (expectedKey + expectedValue).getBytes();
-            final byte[] actual = Arrays.copyOf(
-                    consumer.array(), consumer.keySize() + consumer.valueSize());
-            assertArrayEquals(expected, actual);
+            assertKeyAndValue(consumer, expectedKey, expectedValue);
         }
 
         @Test
@@ -865,7 +908,7 @@ class KeyValueBufferTest {
             putKeyValue(0, key(0), val(0));
             putKeyValue(1, key(1), val(1));
             putKeyValue(2, key(2), val(2));
-            putKeyValue(3, "sm_3", "sv_3"); // h(16)+4+4=24 bytes
+            putKeyValue(3, "sm_3", ""); // h(16) + align8(4) + 0 = 24 bytes
 
             assertEquals(120, buffer.nextIndex());
 
@@ -876,7 +919,7 @@ class KeyValueBufferTest {
 
             assertEntryData(32, 1, key(1), val(1));
             assertEntryData(64, 2, key(2), val(2));
-            assertEntryData(96, 3, "sm_3", "sv_3");
+            assertEntryData(96, 3, "sm_3", "");
             assertEntryData(0, 4, key(4), val(4));
         }
 
@@ -888,10 +931,10 @@ class KeyValueBufferTest {
             assertEquals(0, buffer.nextIndex());
 
             // 24-byte entry (smaller than the 32-byte slots)
-            putKeyValue(4, "sm_4", "sv_4");
+            putKeyValue(4, "sm_4", "");
             assertEquals(24, buffer.nextIndex());
 
-            assertEntryData(0, 4, "sm_4", "sv_4");
+            assertEntryData(0, 4, "sm_4", "");
             assertEntryData(32, 1, key(1), val(1));
         }
 
@@ -915,13 +958,13 @@ class KeyValueBufferTest {
         @Test
         void tailPaddingEvictionDuringWrap() {
             // 48-byte entries: H(16) + 8-byte key + 24-byte value
-            // 24-byte entry:  H(16) + 4-byte key + 4-byte value
+            // 24-byte entry:  H(16) + 4-byte key padded to 8 + empty value
             final String ka = "k" + "A".repeat(7);
             final String va = "v" + "A".repeat(23);
             final String kb = "k" + "B".repeat(7);
             final String vb = "v" + "B".repeat(23);
             final String kc = "kCCC";
-            final String vc = "vCCC";
+            final String vc = "";
             final String kd = "k" + "D".repeat(7);
             final String vd = "v" + "D".repeat(23);
             final String ke = "k" + "E".repeat(7);
@@ -949,7 +992,7 @@ class KeyValueBufferTest {
             assertEquals(96, evtC.index);
             assertEquals(2, evtC.slotIndex);
             assertEquals(4, evtC.keySize);
-            assertEquals(4, evtC.valueSize);
+            assertEquals(0, evtC.valueSize);
 
             final TestListener.Event evtD = listener.evictEvents.get(1);
             assertEquals(0, evtD.index);

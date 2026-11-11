@@ -48,6 +48,13 @@ public abstract class BitSupport {
     public static final long MASK_32_BITS = 0xFFFFFFFFL;
 
     /**
+     * Cache-line width in bytes used for padding hot fields. 128 matches some
+     * architectures like Apple M-series; it is also safe for x86-64 (two 64-byte
+     * lines), so fields placed {@code CACHE_LINE} bytes apart never share a line.
+     */
+    public static final int CACHE_LINE = 128;
+
+    /**
      * Rounds the given value up to the nearest multiple of {@link #SIZE_OF_LONG} (8).
      *
      * @param value the value to align

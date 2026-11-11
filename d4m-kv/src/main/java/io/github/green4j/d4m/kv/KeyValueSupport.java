@@ -31,9 +31,8 @@ import io.github.green4j.d4m.common.BitSupport;
  */
 public abstract class KeyValueSupport {
 
-    private static int multiplyBy31(final int hash) {
-        return (hash << 5) - hash;
-    }
+    private static final long HASH_SEED = 0x9E3779B97F4A7C15L;
+    private static final long HASH_MULTIPLIER = 0xC2B2AE3D27D4EB4FL;
 
     /**
      * Returns a positive hash value for the entire content of the given buffer.
@@ -50,14 +49,19 @@ public abstract class KeyValueSupport {
     }
 
     /**
-     * Returns a positive hash value for a region of the given buffer using
-     * byte-level polynomial hashing (h = 31*h + byte), which produces
-     * consistent results regardless of buffer alignment.
+     * Returns a positive hash value for a region of the given buffer. The region is
+     * consumed in 8-byte little-endian words, each multiplied by a large odd constant
+     * and mixed into the state, and the state is finalized with the MurmurHash3
+     * 64-bit finalizer; so keys that differ in a few bytes, e.g. counters, do not
+     * collide, and the low bits used to pick a segment and a slot are well mixed.
+     * The result depends only on the bytes, not on the alignment of the region or
+     * the byte order of the platform.
      *
      * @param data   the buffer containing the data to hash
      * @param offset the starting offset within the buffer
      * @param size   the number of bytes to hash
-     * @return a positive hash value
+     * @return a hash value in {@code [1, 2^31)}: the metadata of a tier keeps it in
+     *         31 bits next to the occupied flag
      */
     public static int hash(final AtomicBuffer data,
                            final int offset,
@@ -66,17 +70,42 @@ public abstract class KeyValueSupport {
             return 1;
         }
 
-        int hash = 1;
+        long hash = HASH_SEED ^ (size * HASH_MULTIPLIER);
         int index = offset;
-        int remaining = size;
+        final int end = offset + size;
 
-        while (remaining > 0) {
-            hash = multiplyBy31(hash) + (data.getByte(index) & 0xFF);
-            index++;
-            remaining--;
+        while (end - index >= Long.BYTES) {
+            hash = mix(hash, readLongLittleEndian(data, index, Long.BYTES));
+            index += Long.BYTES;
+        }
+        if (index < end) {
+            hash = mix(hash, readLongLittleEndian(data, index, end - index));
         }
 
-        return hash & 0x7FFFFFFF; // always positive
+        hash ^= hash >>> 33;
+        hash *= 0xFF51AFD7ED558CCDL;
+        hash ^= hash >>> 33;
+        hash *= 0xC4CEB9FE1A85EC53L;
+        hash ^= hash >>> 33;
+
+        final int result = (int) (hash ^ (hash >>> 32)) & 0x7FFFFFFF;
+        return result == 0 ? 1 : result;
+    }
+
+    private static long mix(final long hash,
+                            final long word) {
+        return Long.rotateLeft(hash ^ (word * HASH_MULTIPLIER), 31) * HASH_SEED;
+    }
+
+    // Assembled from bytes, so it is the same for any alignment and byte order.
+    private static long readLongLittleEndian(final AtomicBuffer data,
+                                             final int index,
+                                             final int length) {
+        long word = 0;
+        for (int i = 0; i < length; i++) {
+            word |= (data.getByte(index + i) & 0xFFL) << (i << 3);
+        }
+        return word;
     }
 
     /**

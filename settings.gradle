@@ -2,6 +2,7 @@ include(
         'd4m-common',
         'd4m-kv',
         'd4m-sequence',
+        'd4m-queue',
         'd4m-benchmark',
         'd4m-benchmark:jmh',
         'd4m-example',

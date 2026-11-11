@@ -111,7 +111,7 @@ public class Tier {
                                     buffer.buffer(),
                                     keyOffset,
                                     keySize,
-                                    keyOffset + keySize,
+                                    KeyValueBuffer.valueOffset(keyOffset, keySize),
                                     valueSize
                             );
                         }
@@ -192,11 +192,10 @@ public class Tier {
     }
 
     /**
-     * Inserts or updates a key-value pair where the key and value are
-     * stored contiguously in a single buffer.
+     * Inserts or updates a key-value pair whose key and value are stored in a single buffer.
      *
      * @param hash        the pre-computed positive hash of the key
-     * @param keyValue    the buffer containing key followed by value
+     * @param keyValue    the buffer containing the key and the value
      * @param keyOffset   the offset of the key within the buffer
      * @param keySize     the size of the key in bytes
      * @param valueOffset the offset of the value within the buffer
@@ -237,7 +236,8 @@ public class Tier {
             final int index = kvi.index();
 
             final BinaryContent content = kvi.content();
-            content.buffer().putBytes(content.offset(), keyValue, keyOffset, keySize + valueSize);
+            content.buffer().putBytes(content.offset(), keyValue, keyOffset, keySize);
+            content.buffer().putBytes(kvi.valueOffset(), keyValue, valueOffset, valueSize);
             kvi.apply();
 
             if (size < sizeBeforePut) {
@@ -305,7 +305,7 @@ public class Tier {
 
             final BinaryContent content = kvi.content();
             content.buffer().putBytes(content.offset(), key, keyOffset, keySize);
-            content.buffer().putBytes(content.offset() + keySize, value, valueOffset, valueSize);
+            content.buffer().putBytes(kvi.valueOffset(), value, valueOffset, valueSize);
             kvi.apply();
 
             if (size < sizeBeforePut) {

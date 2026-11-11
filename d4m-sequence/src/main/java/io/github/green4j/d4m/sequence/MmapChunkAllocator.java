@@ -148,6 +148,7 @@ public final class MmapChunkAllocator {
      * @param memoryMappedFileFolder directory to store memory-mapped files
      * @param preAlloc               if {@code true}, the first region is mapped eagerly
      * @param epochCounter           shared epoch counter for stamping chunks
+     * @throws IllegalArgumentException if {@code chunkSize} is not a positive multiple of 8
      * @throws UncheckedIOException if pre-allocation or cleanup fails
      */
     public MmapChunkAllocator(final int chunkSize,
@@ -167,6 +168,7 @@ public final class MmapChunkAllocator {
      * @param preAlloc               if {@code true}, the first region is mapped eagerly
      * @param epochCounter           shared epoch counter for stamping chunks
      * @param listener               optional listener for lifecycle events, or {@code null}
+     * @throws IllegalArgumentException if {@code chunkSize} is not a positive multiple of 8
      * @throws UncheckedIOException if pre-allocation or cleanup fails
      */
     public MmapChunkAllocator(final int chunkSize,
@@ -174,6 +176,9 @@ public final class MmapChunkAllocator {
                               final boolean preAlloc,
                               final AtomicLong epochCounter,
                               final Listener listener) {
+        if (chunkSize <= 0 || (chunkSize & 7) != 0) {
+            throw new IllegalArgumentException("chunkSize must be a positive multiple of 8, got " + chunkSize);
+        }
         this.chunkSize = chunkSize;
         this.epochCounter = epochCounter;
         this.memoryMappedFileFolder = memoryMappedFileFolder;

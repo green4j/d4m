@@ -74,7 +74,7 @@ Two write paths:
 - **Insert**: appends a new header + key + value at the head, evicting older entries from the tail as needed to free space.
 - **In-place update**: when the same key is re-`put` with a value of the same size, the bytes are overwritten where they are. Position in the ring does not change, so the entry doesn't get "promoted" to the head.
 
-Each entry header is 16 bytes (two longs) and carries the key/value sizes plus the in-buffer index of the next entry, forming a linked list used by the eviction walker.
+Each entry header is 16 bytes (two longs) and carries the key/value sizes plus the in-buffer index of the next entry, forming a linked list used by the eviction walker. The key follows the header and the value follows the key padded to 8 bytes, so the entry, its key and its value all start 8-byte aligned. The layout is internal: a `KeyValueConsuming.KeyValue` tells where its value goes with `valueOffset()`, and `ByteArrayKeyValueConsumer.valueOffset()` tells where the value is in its array.
 
 ### Cascading tier chain
 
@@ -98,30 +98,30 @@ This section lets you predict how much memory a workload needs before you run it
 
 Two knobs drive every entry's footprint:
 
-- Every entry is stored 8-byte aligned. Define `align8(x) = (x + 7) & ~7`.
+- Every entry is stored 8-byte aligned, and its key is padded to 8 bytes so that the value starts aligned too. Define `align8(x) = (x + 7) & ~7`.
 - Every entry also occupies exactly **one 8-byte metadata slot** in its tier's open-addressing table (the packed `[occupied | hash | index]` long).
 
 ### Storing `N` key-values
 
 For a single entry with key length `k` and value length `v` bytes:
 
-- **Payload bytes** (in the `KeyValueBuffer`): `E = align8(16 + k + v)`, where `16` is the two-long entry header (`KeyValueBuffer.HEADER_SIZE`).
+- **Payload bytes** (in the `KeyValueBuffer`): `E = align8(16 + align8(k) + v)`, where `16` is the two-long entry header (`KeyValueBuffer.HEADER_SIZE`).
 - **Metadata bytes**: `8` (one slot).
 
 So the total **used** memory for `N` entries is:
 
 ```
-used ~ Σ (align8(16 + kᵢ + vᵢ))   +   8 * N
-        └─────── payload ───────┘     └ metadata ┘
+used ~ Σ (align8(16 + align8(kᵢ) + vᵢ))   +   8 * N
+        └─────────── payload ───────────┘     └ metadata ┘
 ```
 
-When keys/values are fixed size this simplifies to `used ~ N * (align8(16 + k + v) + 8)`.
+When keys/values are fixed size this simplifies to `used ~ N * (align8(16 + align8(k) + v) + 8)`.
 
-**Footprint** — for `N = 1,000,000` with key `k = 12 + digits` and value `v = 200 + digits` (the `TieredKeyValueStorageUsage` scenario, `-Dd4m.kv.count=1000000`; ~90% of indices are 6 digits, so the dominant bucket is `E = align8(16 + 18 + 206) = 240`): `~ 236.5M`.
+**Footprint** — for `N = 1,000,000` with key `k = 12 + digits` and value `v = 200 + digits` (the `TieredKeyValueStorageUsage` scenario, `-Dd4m.kv.count=1000000`; ~90% of indices are 6 digits, so the dominant bucket is `E = align8(16 + align8(18) + 206) = 248`): `~ 244.1M`.
 
-**Overhead per entry** — footprint bytes beyond the raw key+value: `align8(16 + k + v) + 8 - (k + v)`. This is a **fixed** `16` (entry header) + `8` (metadata slot) = `24 B`, plus a **variable** `0..7` alignment padding — so **24–31 bytes** total. For the scenario above the payload is already 8-aligned, so the overhead is exactly `24 B`.
+**Overhead per entry** — footprint bytes beyond the raw key+value: `align8(16 + align8(k) + v) + 8 - (k + v)`. This is a **fixed** `16` (entry header) + `8` (metadata slot) = `24 B`, plus a **variable** `0..7` key padding and `0..7` tail padding — so **24–38 bytes** total. Keys whose size is a multiple of 8 need no key padding. For the scenario above the overhead is `32 B`: 6 bytes of key padding and 2 bytes of tail padding.
 
-**Total fixed overhead** — `~ 24 * N` = `24,000,000 B ~ 22.9M`, about 10% of the `236.5M` footprint.
+**Total overhead** — `~ 32 * N` = `32,000,000 B ~ 30.5M`, about 12.5% of the `244.1M` footprint.
 
 **Used vs. allocated.** The formulas above are *used* memory (live bytes). *Allocated* memory is always larger and is driven by three rounding rules:
 
@@ -133,8 +133,8 @@ When keys/values are fixed size this simplifies to `used ~ N * (align8(16 + k + 
 
 `KeyListStorage` layers a multimap over `KeyValueStorage` using two kinds of underlying key-values (see `USER_KEY_PREFIX = 1`, `SYNTHETIC_KEY_SIZE = 8`, `METADATA_VALUE_SIZE = 8`):
 
-- **One metadata key-value per list**: key = `1 + k` (a 1-byte prefix + the user key), value = `8` → `Emeta = align8(16 + (1 + k) + 8) = align8(25 + k)`.
-- **One entry key-value per value**: key = `8` (synthetic), value = user value `v` → `Eentry = align8(16 + 8 + v) = align8(24 + v)`.
+- **One metadata key-value per list**: key = `1 + k` (a 1-byte prefix + the user key), value = `8` → `Emeta = align8(16 + align8(1 + k) + 8) = align8(25 + k)`.
+- **One entry key-value per value**: key = `8` (synthetic), value = user value `v` → `Eentry = align8(16 + align8(8) + v) = align8(24 + v)`.
 
 Each of these is still a full key-value, so each also costs one 8-byte metadata slot:
 
@@ -152,7 +152,7 @@ underlying key-values = N * (1 + M)
 - Per value entry (footprint beyond the raw value `v`): `align8(24 + v) + 8 - v` = a **fixed** `16` (entry header) + `8` (synthetic key) + `8` (metadata slot) = `32 B`, plus a **variable** `0..7` alignment padding = **32–39 bytes**.
 - Per list (a **fixed** overhead regardless of `M`, and it also stores the user key once): the metadata key-value = `align8(25 + k) + 8 B`.
 
-**Total overhead** — `N * (align8(25 + k) + 8) + N * M * (align8(24 + v) + 8 - v)`. For the scenario: `~ 4.58M` list-metadata overhead + `~ 34.3M` per-value overhead = `~ 38.9M`, about 17% of the `233.46M` footprint.
+**Total overhead** — `N * (align8(25 + k) + 8) + N * M * (align8(24 + v) + 8 - v)`. For the scenario: `~ 4.58M` list-metadata overhead + `~ 30.5M` per-value overhead (`32 B` each, since `Eentry = 232`) = `~ 35.1M`, about 15% of the `233.46M` footprint.
 
 ## API
 

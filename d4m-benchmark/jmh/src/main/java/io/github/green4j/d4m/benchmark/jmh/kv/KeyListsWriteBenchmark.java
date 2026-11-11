@@ -53,12 +53,15 @@ import java.util.concurrent.TimeUnit;
  * from the op count:
  * <ul>
  *   <li>{@code noEviction} appends to {@link
- *       BenchmarkSupport#KL_LISTS_NO_EVICTION} lists -- the
+ *       BenchmarkSupport#klListsNoEviction(int, int)} lists -- the
  *       resulting working set fits in the hot tier, 0 % mmap.</li>
  *   <li>{@code evict30} appends to {@link
- *       BenchmarkSupport#KL_LISTS_EVICT_30} lists -- 30 % more
- *       than fit, 30 % spill to mmap.</li>
+ *       BenchmarkSupport#klListsEvict30(int, int)} lists -- 1 / 0.70
+ *       times what fits, 30 % spill to mmap.</li>
  * </ul>
+ * The counts are computed for the lists as they are at the end of an
+ * invocation: one entry per list for {@code insert}, two for
+ * {@code update}.
  *
  * <p>Two write modes:
  * <ul>
@@ -75,7 +78,7 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Run with:
  * <pre>
- *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="KeyListsWriteBenchmark"
+ *   ./gradlew :d4m-benchmark:jmh:jmh -PjmhArgs="KeyListsWriteBenchmark"
  * </pre>
  */
 @BenchmarkMode(Mode.SingleShotTime)
@@ -107,9 +110,11 @@ public class KeyListsWriteBenchmark {
     public void setupTrial() {
         keyBuf = BenchmarkSupport.createKeyBuffer();
         value = BenchmarkSupport.createValueBuffer();
+        // Lists hold one entry after an insert invocation, two after an update one.
+        final int entriesPerList = "update".equals(mode) ? 2 : 1;
         range = "noEviction".equals(eviction)
-                ? BenchmarkSupport.KL_LISTS_NO_EVICTION
-                : BenchmarkSupport.KL_LISTS_EVICT_30;
+                ? BenchmarkSupport.klListsNoEviction(BenchmarkSupport.RING_SIZE, entriesPerList)
+                : BenchmarkSupport.klListsEvict30(BenchmarkSupport.RING_SIZE, entriesPerList);
     }
 
     @Setup(Level.Iteration)

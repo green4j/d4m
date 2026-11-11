@@ -40,7 +40,8 @@ class PendingSwapTest {
         @Test
         void capturesEpochsAtCreationTime() {
             final Chunk heapChunk =
-                    new Chunk(new io.github.green4j.d4m.common.UnsafeBuffer(ByteBuffer.allocate(512)));
+                    new Chunk(new io.github.green4j.d4m.common.UnsafeBuffer(
+                            io.github.green4j.d4m.common.UnsafeBuffer.allocateHeapAligned(512)));
             heapChunk.putChunkEpoch(10L);
             final Chunk mmapChunk =
                     new Chunk(new io.github.green4j.d4m.common.UnsafeBuffer(ByteBuffer.allocateDirect(512)));
@@ -57,7 +58,8 @@ class PendingSwapTest {
         @Test
         void survivesSubsequentEpochChange() {
             final Chunk heapChunk =
-                    new Chunk(new io.github.green4j.d4m.common.UnsafeBuffer(ByteBuffer.allocate(512)));
+                    new Chunk(new io.github.green4j.d4m.common.UnsafeBuffer(
+                            io.github.green4j.d4m.common.UnsafeBuffer.allocateHeapAligned(512)));
             heapChunk.putChunkEpoch(10L);
             final Chunk mmapChunk =
                     new Chunk(new io.github.green4j.d4m.common.UnsafeBuffer(ByteBuffer.allocateDirect(512)));

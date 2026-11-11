@@ -52,12 +52,14 @@ import java.util.concurrent.TimeUnit;
  * <p>Both eviction profiles share the same {@link
  * BenchmarkSupport#HOT_TIER} hot tier. {@code @Setup(Level.Trial)}
  * pre-populates the profile-specific list count ({@link
- * BenchmarkSupport#KL_LISTS_NO_EVICTION} or {@link
- * BenchmarkSupport#KL_LISTS_EVICT_30}), each list holding one entry;
- * the writer cycles {@code seq % range} appending another entry per
- * list id, and the readers cycle the same range loading lists. For
- * {@code noEviction} every access is in tier[0]; for {@code evict30}
- * ~30 % of accesses touch mmap-resident metadata or entries.
+ * BenchmarkSupport#klListsNoEviction(int, int)} or {@link
+ * BenchmarkSupport#klListsEvict30(int, int)} for lists of one entry), each
+ * list holding one entry; the writer cycles {@code seq % range}
+ * appending another entry per list id, and the readers cycle the same
+ * range loading lists. The profile describes the working set at the
+ * start: for {@code noEviction} it fits in tier[0], for {@code evict30}
+ * ~30 % of it is mmap-resident. The writer's appends grow the lists, so
+ * the spill grows during a run in both profiles.
  *
  * <p>Two benchmark groups:
  * <ul>
@@ -67,7 +69,7 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Run with:
  * <pre>
- *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="KeyListsConcurrentReadWriteBenchmark"
+ *   ./gradlew :d4m-benchmark:jmh:jmh -PjmhArgs="KeyListsConcurrentReadWriteBenchmark"
  * </pre>
  */
 @BenchmarkMode(Mode.Throughput)
@@ -96,8 +98,8 @@ public class KeyListsConcurrentReadWriteBenchmark {
     public void setup() {
         value = BenchmarkSupport.createValueBuffer();
         range = "noEviction".equals(eviction)
-                ? BenchmarkSupport.KL_LISTS_NO_EVICTION
-                : BenchmarkSupport.KL_LISTS_EVICT_30;
+                ? BenchmarkSupport.klListsNoEviction(segments, 1)
+                : BenchmarkSupport.klListsEvict30(segments, 1);
         lists = KeyListsBenchmarkSupport.createKeyLists(segments);
         final UnsafeBuffer populateKey = BenchmarkSupport.createKeyBuffer();
         // One entry per list so the writer's cyclic appends extend

@@ -57,7 +57,7 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Run with:
  * <pre>
- *   ./gradlew :d4m-benchmark:jmh -PjmhArgs="SequenceRealtimeBroadcastBenchmark"
+ *   ./gradlew :d4m-benchmark:jmh:jmh -PjmhArgs="SequenceRealtimeBroadcastBenchmark"
  * </pre>
  */
 @BenchmarkMode(Mode.Throughput)
@@ -186,10 +186,18 @@ public class SequenceRealtimeBroadcastBenchmark {
     /**
      * Auxiliary JMH counters for tracking entries consumed by the reader.
      */
-    @AuxCounters(AuxCounters.Type.EVENTS)
+    @AuxCounters(AuxCounters.Type.OPERATIONS)
     @State(Scope.Thread)
     public static class ReaderCounters {
         public long entries;
+
+        /**
+         * Resets the counter before each iteration.
+         */
+        @Setup(Level.Iteration)
+        public void reset() {
+            entries = 0;
+        }
     }
 
     /**

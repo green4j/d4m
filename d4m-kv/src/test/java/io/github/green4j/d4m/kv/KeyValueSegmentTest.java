@@ -29,6 +29,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -285,6 +289,58 @@ class KeyValueSegmentTest {
 
             assertTrue(evictionCount[0] > 0,
                     "eviction listener should be called when tier cannot grow");
+        }
+    }
+
+    @Nested
+    class Alignment {
+        private String valueOf(final String key) {
+            return "v" + key + "x".repeat(key.length() % 7);
+        }
+
+        @Test
+        void keysAndValuesAreAlignedAcrossTiersAndUpdates() {
+            final List<String> evicted = new ArrayList<>();
+            final EvictionListener listener =
+                    (notifier, hash, keyValue, keyOffset, keySize, valueOffset, valueSize) -> {
+                        assertEquals(0, (keyValue.addressOffset() + keyOffset) & 7, "The key is not 8-byte aligned");
+                        assertEquals(0, (keyValue.addressOffset() + valueOffset) & 7,
+                                "The value is not 8-byte aligned");
+                        final byte[] key = new byte[keySize];
+                        keyValue.getBytes(keyOffset, key, 0, keySize);
+                        final byte[] value = new byte[valueSize];
+                        keyValue.getBytes(valueOffset, value, 0, valueSize);
+                        assertEquals(valueOf(new String(key)), new String(value));
+                        evicted.add(new String(key));
+                    };
+            final TierFactory directTiers = (currentTiers, currentSize, evictionListener) ->
+                    currentSize >= 2 ? null : new Tier(
+                            INITIAL_CAPACITY,
+                            new UnsafeBuffer(ByteBuffer.allocateDirect(KV_BUFFER_SIZE)),
+                            evictionListener);
+            final KeyValueSegment segment = new KeyValueSegment(1, directTiers, listener);
+
+            final List<String> keys = new ArrayList<>();
+            for (int i = 0; i < 200; i++) {
+                final String key = "k".repeat(1 + i % 9) + i; // key sizes 2..12
+                keys.add(key);
+                putEntry(segment, key, valueOf(key));
+                if (i % 5 == 0) {
+                    putEntry(segment, key, valueOf(key)); // same size: updated in place
+                }
+            }
+
+            assertEquals(2, segment.size());
+            assertFalse(evicted.isEmpty());
+            int stored = 0;
+            for (final String key : keys) {
+                final ByteArrayValueConsumer consumer = new ByteArrayValueConsumer();
+                if (getEntry(segment, key, consumer)) {
+                    assertEquals(valueOf(key), new String(consumer.array(), 0, consumer.valueSize()));
+                    stored++;
+                }
+            }
+            assertEquals(keys.size(), stored + evicted.size());
         }
     }
 }

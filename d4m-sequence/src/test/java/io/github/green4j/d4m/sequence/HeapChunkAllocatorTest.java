@@ -32,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -48,6 +49,14 @@ class HeapChunkAllocatorTest {
 
     @Nested
     class Allocation {
+        @Test
+        void rejectsChunkSizeNotMultipleOf8() {
+            assertThrows(IllegalArgumentException.class,
+                    () -> new HeapChunkAllocator(CHUNK_SIZE + 1, CHUNKS_PER_SLAB, 8 * 1024L, new AtomicLong()));
+            assertThrows(IllegalArgumentException.class,
+                    () -> new HeapChunkAllocator(0, CHUNKS_PER_SLAB, 8 * 1024L, new AtomicLong()));
+        }
+
         @Test
         void allocatesDistinctChunks() {
             final HeapChunkAllocator alloc = makeAllocator(8 * 1024L);

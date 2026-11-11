@@ -28,7 +28,6 @@ import io.github.green4j.d4m.common.UnsafeBuffer;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-import java.nio.ByteBuffer;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -45,7 +44,7 @@ class CursorSupportTest {
 
     private static Chunk makeChunk(final long epoch) {
         final AtomicBuffer buffer =
-                new UnsafeBuffer(ByteBuffer.allocate(CHUNK_SIZE));
+                new UnsafeBuffer(UnsafeBuffer.allocateHeapAligned(CHUNK_SIZE));
         final Chunk chunk = new Chunk(buffer);
         chunk.putChunkEpoch(epoch);
         chunk.putRefCountOrdered(0);
