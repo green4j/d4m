@@ -234,9 +234,9 @@ public final class UnsafeBuffer implements AtomicBuffer {
     /**
      * Allocates a heap {@link ByteBuffer} of the given capacity whose content starts
      * 8-byte aligned in memory, whatever offset the JVM gives to the data of a
-     * {@code byte[]} (e.g. with compact object headers). The alignment is stable: the
-     * JDK guarantees it for heap buffers and units up to 8 bytes, see
-     * {@link ByteBuffer#alignmentOffset(int, int)}.
+     * {@code byte[]} (e.g. with compact object headers). The alignment is stable: every
+     * object starts 8-byte aligned, and the data of a {@code byte[]} is at a fixed offset
+     * from the start of the array.
      *
      * @param capacity the capacity in bytes
      * @return the aligned heap buffer
@@ -248,8 +248,7 @@ public final class UnsafeBuffer implements AtomicBuffer {
                     + (Integer.MAX_VALUE - (Long.BYTES - 1)) + "], got " + capacity);
         }
         final ByteBuffer buffer = ByteBuffer.allocate(capacity + Long.BYTES - 1);
-        final int misalignment = buffer.alignmentOffset(0, Long.BYTES);
-        final int start = misalignment == 0 ? 0 : Long.BYTES - misalignment;
+        final int start = (int) (-(BYTE_ARRAY_BASE + buffer.arrayOffset()) & (Long.BYTES - 1));
         buffer.position(start).limit(start + capacity);
         return buffer.slice();
     }
