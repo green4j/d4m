@@ -308,7 +308,7 @@ if (lists.list(accessor, keyBuf, 0, keyLen)) {
 
 ### Allocation profile
 
-Steady-state `append` and `list` + `forEach` allocate **nothing**: the writer is its own `TwoKeyComputeAction` (no lambda capture), the contexts and metadata consumer are reusable fields, and the reader's load buffers live on the `ListAccessor`. `KeyListsAllocationTest` enforces this.
+Steady-state `append` and `list` + `forEach` allocate **nothing**: the writer is its own `TwoKeyComputeAction` (no lambda capture), the contexts and metadata consumer are reusable fields, and the reader's load buffers live on the `ListAccessor`.
 
 ## License
 

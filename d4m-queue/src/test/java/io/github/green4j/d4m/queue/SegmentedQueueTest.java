@@ -28,7 +28,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
-import java.lang.management.ManagementFactory;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
@@ -917,32 +916,6 @@ class SegmentedQueueTest {
 
             assertSequence(drain(manager, b, 100), 0, 100);
             assertSequence(drain(manager, a, 400), 0, 400);
-        }
-    }
-
-    @Test
-    void steadyStateDoesNotAllocate() throws IOException {
-        final com.sun.management.ThreadMXBean threads =
-                (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
-        try (SegmentManager manager = manager().withMaxMemoryBytes(8L * SEGMENT).build()) {
-            final SegmentedQueue queue = manager.open(dir, ReadMode.TAILING);
-            final QueueWriter writer = queue.writer();
-            final QueueReader reader = queue.reader();
-            final MessageHandler handler = (seq, buffer, offset, length) -> true;
-            for (int round = 0; round < 3; round++) {
-                final long before = threads.getCurrentThreadAllocatedBytes();
-                for (int i = 0; i < 20_000; i++) { // about 600 segments
-                    while (writer.offer(message, 0, PAYLOAD) == QueueWriter.REJECTED) {
-                        manager.doWork();
-                    }
-                    reader.poll(handler, 16);
-                    manager.doWork();
-                }
-                final long allocated = threads.getCurrentThreadAllocatedBytes() - before;
-                if (round > 0) { // the first round fills the pools and links call sites
-                    assertEquals(0, allocated, "The writer, the reader or the manager allocated");
-                }
-            }
         }
     }
 

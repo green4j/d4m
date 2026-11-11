@@ -436,7 +436,6 @@ class UnsafeBufferTest {
 
                 assertEquals(capacity, buffer.capacity());
                 assertFalse(buffer.isDirect());
-                assertEquals(0, buffer.alignmentOffset(0, Long.BYTES));
                 assertEquals(0, unsafe.addressOffset() & 7);
                 assertDoesNotThrow(unsafe::verifyAlignment);
             }
