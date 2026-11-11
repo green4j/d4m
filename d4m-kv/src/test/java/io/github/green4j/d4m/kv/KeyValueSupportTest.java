@@ -28,6 +28,9 @@ import io.github.green4j.d4m.common.UnsafeBuffer;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashSet;
+import java.util.Set;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -71,7 +74,61 @@ class KeyValueSupportTest {
             final int h1 = KeyValueSupport.hash(buf1, 0, buf1.capacity());
             final int h2 = KeyValueSupport.hash(buf2, 0, buf2.capacity());
 
-            assertFalse(h1 == h2, "different content should produce different hashes");
+            assertFalse(h1 == h2, "Different content produced the same hash");
+        }
+
+        @Test
+        void counterKeysDoNotCollide() {
+            final int count = 200_000;
+            final AtomicBuffer wide = new UnsafeBuffer(new byte[32]);
+            final AtomicBuffer narrow = new UnsafeBuffer(new byte[8]);
+            final Set<Integer> wideHashes = new HashSet<>();
+            final Set<Integer> narrowHashes = new HashSet<>();
+            final int[] lowBits = new int[128];
+            for (long i = 0; i < count; i++) {
+                wide.putLong(24, i);
+                narrow.putLong(0, Long.reverseBytes(i)); // big-endian, as in synthetic list keys
+                final int h = KeyValueSupport.hash(wide, 0, 32);
+                wideHashes.add(h);
+                narrowHashes.add(KeyValueSupport.hash(narrow, 0, 8));
+                lowBits[h & 127]++;
+            }
+
+            // a random 31-bit hash collides about count^2 / 2^32 ~ 10 times
+            assertTrue(wideHashes.size() > count - 100,
+                    "Counter keys of 32 bytes collided: " + (count - wideHashes.size()) + " times");
+            assertTrue(narrowHashes.size() > count - 100,
+                    "Counter keys of 8 bytes collided: " + (count - narrowHashes.size()) + " times");
+            for (final int n : lowBits) {
+                assertTrue(Math.abs(n - count / 128) < count / 128 / 5,
+                        "The low bits picking a segment are skewed: " + n + " keys in one of 128");
+            }
+        }
+
+        @Test
+        void hashDoesNotDependOnAlignment() {
+            final byte[] data = new byte[64];
+            for (int i = 0; i < data.length; i++) {
+                data[i] = (byte) (i * 37 + 11);
+            }
+            final AtomicBuffer buffer = new UnsafeBuffer(new byte[128]);
+            for (int length = 1; length <= 40; length++) {
+                final int expected = KeyValueSupport.hash(new UnsafeBuffer(data), 0, length);
+                for (int offset = 1; offset < 8; offset++) {
+                    buffer.putBytes(offset, data, 0, length);
+                    assertEquals(expected, KeyValueSupport.hash(buffer, offset, length),
+                            "Hash of " + length + " bytes changed at offset " + offset);
+                }
+            }
+        }
+
+        @Test
+        void lengthIsPartOfTheHash() {
+            final AtomicBuffer buffer = new UnsafeBuffer(new byte[16]);
+            buffer.putByte(0, (byte) 'a');
+
+            assertFalse(KeyValueSupport.hash(buffer, 0, 1) == KeyValueSupport.hash(buffer, 0, 2),
+                    "A trailing zero byte did not change the hash");
         }
 
         @Test
