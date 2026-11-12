@@ -24,6 +24,9 @@ What it does:
 ./gradlew --no-daemon --stacktrace clean build
 ```
 
+`build` is the whole definition of green here - unit and stress tests, Checkstyle and the JaCoCo report all hang off it.
+There is no separate long-running suite to split out.
+
 ## Release and Publish Workflow
 
 `release.yml` supports two publishing modes:
@@ -43,14 +46,32 @@ The publish workflow runs on **JDK 11** to keep release artifacts built from the
 - Snapshot mode:
 
 ```bash
-./gradlew --no-daemon --stacktrace clean publish
+./gradlew --no-daemon --stacktrace clean build publish
 ```
 
 - Release mode:
 
 ```bash
-./gradlew --no-daemon --stacktrace clean publish uploadArtifactsToSonatypeCentralPortal
+./gradlew --no-daemon --stacktrace clean build publish uploadArtifactsToSonatypeCentralPortal
 ```
+
+Both run `build` first - nothing is published which has not passed the tests, Checkstyle and JaCoCo of the
+build itself, rather than trusting an earlier run on another commit.
+
+## Published Artifacts
+
+Group `io.github.green4j`:
+
+| Artifact | What it is |
+|---|---|
+| `d4m-common` | shared primitives: `AtomicBuffer`, `UnsafeBuffer`, bit and byte utilities |
+| `d4m-kv` | in-memory key-value map store |
+| `d4m-sequence` | in-memory entry sequence store |
+| `d4m-queue` | single-producer/single-consumer binary queue with spill to disk |
+| `d4m-all` | the four above in one shaded jar |
+
+Each carries a sources jar and a javadoc jar; `d4m-all` carries one javadoc over all four.
+`d4m-benchmark` and `d4m-example` are not published.
 
 ## Required GitHub Secrets
 
@@ -70,15 +91,35 @@ Version is read from `version.txt`.
 - Snapshot mode requires version ending with `-SNAPSHOT`.
 - Release mode requires version **without** `-SNAPSHOT`.
 
-The workflow validates this before running Gradle.
+The workflow validates this before running Gradle. A tag push is validated further: the tag has to be
+`v<version>` of the same `version.txt`, so a tag names what was actually published.
 
 ## Recommended Release Procedure
 
 1. Ensure `build.yml` is green on `main`.
-2. Update `version.txt` to a non-snapshot version (for example `0.1.0`).
-3. Push the release commit and create/push tag `v0.1.0` (or run `release.yml` manually with `publish_mode=release`).
+2. Update `version.txt` to a non-snapshot version (for example `0.0.2`).
+3. Push the release commit and create/push tag `v0.0.2` (or run `release.yml` manually with `publish_mode=release`).
 4. Wait for `release.yml` to publish and finalize artifacts.
-5. After release, bump `version.txt` to next snapshot (for example `0.1.1-SNAPSHOT`).
+5. After release, bump `version.txt` to next snapshot (for example `0.0.3-SNAPSHOT`).
+
+## An example of release
+
+1. Set release version
+```bash
+echo 0.0.2 > version.txt
+git add version.txt && git commit -m "Release 0.0.2"
+git push
+```
+2. Initiate release pushing the tag
+```bash
+git tag v0.0.2
+git push origin v0.0.2
+```
+3. Increment version to next snapshot
+```bash
+echo 0.0.3-SNAPSHOT > version.txt
+git add version.txt && git commit -m "Back to snapshot" && git push
+```
 
 ## Troubleshooting
 
@@ -86,3 +127,5 @@ The workflow validates this before running Gradle.
 - **Version/mode mismatch**: verify `version.txt` suffix and selected `publish_mode`.
 - **Signing failures**: ensure the key is ASCII-armored and password matches the key.
 - **Sonatype upload errors**: retry after verifying credentials and Sonatype account permissions.
+- **Build run stuck in Queued and cannot be cancelled**: run `build.yml` manually on the same branch;
+  its concurrency group cancels the stuck run.
