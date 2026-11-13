@@ -280,6 +280,46 @@ class SequenceTest {
         }
 
         @Test
+        void insertIntoTheRangeOfALaterChunkKeepsTheOrder() {
+            final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
+            final int entriesPerChunk = DATA_CAP / MSG_TOTAL;
+            for (int i = 0; i < 3 * entriesPerChunk; i++) {
+                sequence.append(i * 10L, payload, 0, MSG_PAYLOAD);
+            }
+            final long chunk1Min = entriesPerChunk * 10L;
+
+            sequence.insert(chunk1Min + 5, payload, 0, MSG_PAYLOAD); // inside chunk 1, after its first entry
+            sequence.insert(chunk1Min, payload, 0, MSG_PAYLOAD); // equal to the first entry of chunk 1
+            sequence.insert(chunk1Min - 5, payload, 0, MSG_PAYLOAD); // between chunk 0 and chunk 1
+
+            final ChunkSnapshot snapshot = sequence.snapshot();
+            long prevOrder = Long.MIN_VALUE;
+            int totalEntries = 0;
+            for (int chunkIdx = 0; chunkIdx < snapshot.size(); chunkIdx++) {
+                final Chunk chunk = snapshot.chunk(chunkIdx);
+                int entryOffset = Chunk.HEADER_SIZE;
+                for (int entryIndex = 0; entryIndex < chunk.getEntryCount(); entryIndex++) {
+                    final long entryOrder = chunk.entryOrder(entryOffset);
+                    assertTrue(entryOrder >= prevOrder, "entries must be ordered: " + entryOrder + " after "
+                            + prevOrder + " in chunk " + chunkIdx);
+                    prevOrder = entryOrder;
+                    entryOffset += chunk.entryTotalSize(entryOffset);
+                    totalEntries++;
+                }
+            }
+            assertEquals(3 * entriesPerChunk + 3, totalEntries);
+
+            final ForwardCursor cursor = new ForwardCursor(sequence);
+            cursor.seekTo(Long.MIN_VALUE);
+            final int[] read = {0};
+            while (cursor.next(64, (owner, order, buffer, offset, size) -> read[0]++) > 0) {
+                // all of them
+            }
+            cursor.close();
+            assertEquals(totalEntries, read[0], "a forward cursor must read every entry");
+        }
+
+        @Test
         void insertAtEndFallsBackToAppend() {
             final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
             sequence.append(100L, payload, 0, MSG_PAYLOAD);
@@ -584,6 +624,29 @@ class SequenceTest {
 
             assertEquals(2, written);
             assertEquals(5, totalEntries(sequence.snapshot()));
+            assertOrdered(sequence.snapshot());
+        }
+
+        @Test
+        void insertBatchIntoGapsBetweenChunks() {
+            final AtomicBuffer payload = TestHarness.payload(MSG_PAYLOAD);
+            final int entriesPerChunk = DATA_CAP / MSG_TOTAL;
+            for (int i = 0; i < 3 * entriesPerChunk; i++) {
+                sequence.append(i * 10L, payload, 0, MSG_PAYLOAD);
+            }
+            final long chunk1Min = entriesPerChunk * 10L;
+            final long chunk2Min = 2 * entriesPerChunk * 10L;
+
+            // gap before chunk 1, inside chunk 1, gap before chunk 2, inside chunk 2
+            final long[] orders = {chunk1Min - 5, chunk1Min + 5, chunk2Min - 5, chunk2Min + 5};
+            final AtomicBuffer payloads = TestHarness.payload(orders.length * MSG_PAYLOAD);
+            final int[] offsets = {0, MSG_PAYLOAD, 2 * MSG_PAYLOAD, 3 * MSG_PAYLOAD};
+            final int[] sizes = {MSG_PAYLOAD, MSG_PAYLOAD, MSG_PAYLOAD, MSG_PAYLOAD};
+
+            final int written = sequence.insertBatch(orders, payloads, offsets, sizes, orders.length);
+
+            assertEquals(orders.length, written);
+            assertEquals(3 * entriesPerChunk + orders.length, totalEntries(sequence.snapshot()));
             assertOrdered(sequence.snapshot());
         }
 

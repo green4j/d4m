@@ -673,7 +673,7 @@ public final class Sequence {
 
         // Group COW entries by target chunk. For each entry, first check if it
         // falls inside an existing chunk's [min, max] range; if not (gap case),
-        // use insertionChunkIndex to find the preceding chunk. Hinted search
+        // use insertionChunkIndexFrom to find the following chunk. Hinted search
         // exploits the non-decreasing chunk index property of sorted input.
         if (cowEnd > batchGroupChunkIdx.length) {
             final int newLen = Math.max(cowEnd, batchGroupChunkIdx.length * 2);
@@ -1347,10 +1347,12 @@ public final class Sequence {
     }
 
     /**
-     * Binary-searches the snapshot for the <b>rightmost</b> chunk whose
-     * {@code maxOrder <= order}. This is the chunk into which a new entry
-     * with the given order should be inserted. Returns {@code 0} if the
-     * order precedes all chunks.
+     * Binary-searches the snapshot for the <b>leftmost</b> chunk whose
+     * {@code maxOrder > order}. This is the chunk into which a new entry
+     * with the given order should be inserted: every entry of the chunks
+     * before it is {@code <= order}, so the entry goes in front of the first
+     * entry of this chunk that is greater than it, after any equal ones.
+     * Returns the last chunk if no chunk has a greater order.
      *
      * @param forSnapshot snapshot to search
      * @param order       the order to locate an insertion point for
@@ -1358,14 +1360,14 @@ public final class Sequence {
      */
     private static int insertionChunkIndex(final ChunkSnapshot forSnapshot,
                                            final long order) {
-        int low = 0, high = forSnapshot.size() - 1, result = 0;
+        int low = 0, high = forSnapshot.size() - 1, result = forSnapshot.size() - 1;
         while (low <= high) {
             final int mid = (low + high) >>> 1;
-            if (forSnapshot.chunk(mid).getMaxOrder() <= order) {
+            if (forSnapshot.chunk(mid).getMaxOrder() > order) {
                 result = mid;
-                low = mid + 1;
-            } else {
                 high = mid - 1;
+            } else {
+                low = mid + 1;
             }
         }
         return result;
@@ -1410,19 +1412,19 @@ public final class Sequence {
      * @param forSnapshot snapshot to search
      * @param order       the order to locate an insertion point for
      * @param lowHint     the start position
-     * @return target chunk index target chunk index (always valid within the snapshot)
+     * @return target chunk index (always valid within the snapshot)
      */
     private static int insertionChunkIndexFrom(final ChunkSnapshot forSnapshot,
                                                final long order,
                                                final int lowHint) {
-        int low = lowHint, high = forSnapshot.size() - 1, result = lowHint;
+        int low = lowHint, high = forSnapshot.size() - 1, result = forSnapshot.size() - 1;
         while (low <= high) {
             final int mid = (low + high) >>> 1;
-            if (forSnapshot.chunk(mid).getMaxOrder() <= order) {
+            if (forSnapshot.chunk(mid).getMaxOrder() > order) {
                 result = mid;
-                low = mid + 1;
-            } else {
                 high = mid - 1;
+            } else {
+                low = mid + 1;
             }
         }
         return result;
